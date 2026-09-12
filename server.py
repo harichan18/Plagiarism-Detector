@@ -187,11 +187,13 @@ class PlagiarismRequestHandler(http.server.BaseHTTPRequestHandler):
     def end_headers(self):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept")
+        self.send_header("Access-Control-Max-Age", "86400")
         super().end_headers()
 
     def do_OPTIONS(self):
         self.send_response(204)
+        self.send_header("Content-Length", "0")
         self.end_headers()
 
     def send_json(self, data, status=200):

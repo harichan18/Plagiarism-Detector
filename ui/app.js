@@ -3,6 +3,19 @@
  * Bridges user interactions directly to the authoritative C DSA backend via server.py.
  */
 
+// Backend API Configuration: Connects deployed Vercel frontend to Render backend, while keeping local development working
+const IS_LOCAL =
+  window.location.hostname === 'localhost' ||
+  window.location.hostname === '127.0.0.1' ||
+  window.location.hostname.startsWith('192.168.') ||
+  window.location.hostname.startsWith('10.') ||
+  window.location.hostname === '' ||
+  window.location.protocol === 'file:';
+
+const API_BASE = IS_LOCAL
+  ? (window.location.origin && window.location.origin.startsWith('http') ? window.location.origin : 'http://localhost:8080')
+  : 'https://plagiarism-detector-yyg0.onrender.com';
+
 // Global State
 let currentRefDoc = null;         // { filepath, filename, file_size, word_count, sentence_count, unique_words }
 let candidateFiles = [];          // Array of { filepath, filename, file_size, word_count, sentence_count }
@@ -209,7 +222,7 @@ function handleSingleFileInput(file, isReference) {
 // Upload helpers
 async function uploadFileAsReference(filename, content, isBase64 = false) {
   try {
-    const res = await fetch('/api/upload', {
+    const res = await fetch(`${API_BASE}/api/upload`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ filename, content, is_base64: isBase64 })
@@ -251,7 +264,7 @@ async function uploadFileAsReference(filename, content, isBase64 = false) {
 
 async function uploadFileAsCandidate(filename, content, isBase64 = false) {
   try {
-    const res = await fetch('/api/upload', {
+    const res = await fetch(`${API_BASE}/api/upload`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ filename, content, is_base64: isBase64 })
@@ -363,7 +376,7 @@ async function runSingleComparison(refPath, candPath) {
   const candName = candObj ? candObj.filename : null;
   const refName = currentRefDoc ? currentRefDoc.filename : null;
 
-  const res = await fetch('/api/compare', {
+  const res = await fetch(`${API_BASE}/api/compare`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -392,7 +405,7 @@ async function runBatchComparison(refPath, candPaths) {
   });
   const refName = currentRefDoc ? currentRefDoc.filename : null;
 
-  const res = await fetch('/api/batch-compare', {
+  const res = await fetch(`${API_BASE}/api/batch-compare`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -674,7 +687,7 @@ async function handleExportReport() {
   const outName = `${res.compared_name.replace(/\.[^/.]+$/, "")}_report.txt`;
 
   try {
-    const apiRes = await fetch('/api/export-report', {
+    const apiRes = await fetch(`${API_BASE}/api/export-report`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
