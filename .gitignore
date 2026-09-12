@@ -1,0 +1,14 @@
+documents/
+reports/
+*.exe
+*.o
+*.out
+__pycache__/
+*.pyc
+.venv/
+venv/
+.vscode/
+*.tmp
+*.log
+.DS_Store
+Thumbs.db

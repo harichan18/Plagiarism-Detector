@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Plagiarism Detection & Document Similarity Analysis</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Academic Top Banner -->
+  <header class="app-header">
+    <div class="header-container">
+      <div class="brand">
+        <h1>Plagiarism Detection</h1>
+        <div class="header-sub">Document Similarity Analysis</div>
+        <p class="subtitle">Compare documents, detect matching content, and analyze textual similarity using classical DSA algorithms.</p>
+      </div>
+      <nav class="header-nav">
+        <button class="nav-link active" data-tab="tab-compare">Analysis Dashboard</button>
+        <button class="nav-link" data-tab="tab-algorithms">Algorithms Used</button>
+        <button class="nav-link" data-tab="tab-about">Technical Details</button>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Limitations Alert Bar -->
+  <aside class="limitations-banner" role="note">
+    <div class="limitations-content">
+      <span class="badge-notice">ACADEMIC NOTICE</span>
+      <p>This system performs lexical and textual similarity analysis using exact and n-gram pattern matching. Semantic paraphrasing may not be detected reliably. This tool does not prove plagiarism; it identifies lexical overlap for human review.</p>
+    </div>
+  </aside>
+
+  <!-- Global Error / Alert Display -->
+  <div id="alert-container" class="alert-container hidden" role="alert">
+    <div class="alert-box" id="alert-box">
+      <span id="alert-message"></span>
+      <button id="alert-close" class="btn-close">&times;</button>
+    </div>
+  </div>
+
+  <main class="main-content">
+    <!-- TAB 1: COMPARE / DASHBOARD -->
+    <section id="tab-compare" class="tab-pane active">
+      <!-- Upload / Document Selection Section -->
+      <section class="section-card upload-section">
+        <div class="section-header-row">
+          <div>
+            <h2>Document Input Area</h2>
+            <p class="section-desc">Select a baseline reference document and one or more candidate documents to analyze.</p>
+          </div>
+        </div>
+
+        <div class="upload-grid">
+          <!-- Reference Document Card -->
+          <div class="card upload-card" id="ref-dropzone">
+            <div class="card-label">REFERENCE DOCUMENT</div>
+            <div class="drop-zone-content">
+              <div class="drop-icon">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                  <polyline points="14 2 14 8 20 8"></polyline>
+                  <line x1="12" y1="18" x2="12" y2="12"></line>
+                  <line x1="9" y1="15" x2="15" y2="15"></line>
+                </svg>
+              </div>
+              <p class="drop-text">Drag & Drop reference document here</p>
+              <span class="or-divider">or</span>
+              <label class="btn btn-outline file-input-label">
+                Choose File
+                <input type="file" id="ref-file-input" accept=".txt,.pdf,.docx,.pptx">
+              </label>
+              <div class="file-hint">Supported formats: TXT, PDF, DOCX, PPTX</div>
+            </div>
+
+            <!-- Reference Metadata Display -->
+            <div id="ref-meta" class="doc-meta-card hidden">
+              <div class="doc-meta-header">
+                <div class="doc-title-box">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+                  <span id="ref-filename" class="doc-filename"></span>
+                </div>
+                <button id="ref-remove-btn" class="btn-icon" title="Remove Document">&times;</button>
+              </div>
+              <div class="meta-grid">
+                <div class="meta-item"><span class="meta-label">File Size</span><span id="ref-size" class="meta-val">-</span></div>
+                <div class="meta-item"><span class="meta-label">Word Count</span><span id="ref-words" class="meta-val">-</span></div>
+                <div class="meta-item"><span class="meta-label">Sentence Count</span><span id="ref-sentences" class="meta-val">-</span></div>
+                <div class="meta-item"><span class="meta-label">Unique Words</span><span id="ref-unique" class="meta-val">-</span></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Comparison Candidate(s) Card -->
+          <div class="card upload-card" id="cand-dropzone">
+            <div class="card-label">SECOND DOCUMENT / CANDIDATES</div>
+            <div class="drop-zone-content">
+              <div class="drop-icon">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+                  <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+                  <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
+                  <path d="M9 14l2 2 4-4"></path>
+                </svg>
+              </div>
+              <p class="drop-text">Drag & Drop one or multiple documents here</p>
+              <span class="or-divider">or</span>
+              <div class="file-btn-group">
+                <label class="btn btn-outline file-input-label">
+                  Choose Files
+                  <input type="file" id="cand-file-input" accept=".txt,.pdf,.docx,.pptx" multiple>
+                </label>
+              </div>
+              <div class="file-hint">Supported formats: TXT, PDF, DOCX, PPTX</div>
+            </div>
+
+            <!-- Candidate File List -->
+            <div id="cand-list-wrapper" class="cand-list-wrapper hidden">
+              <div class="cand-list-header">
+                <span>Selected Candidates (<span id="cand-count">0</span>)</span>
+                <button id="cand-clear-all" class="btn-text">Clear All</button>
+              </div>
+              <ul id="cand-file-list" class="cand-file-list"></ul>
+            </div>
+          </div>
+        </div>
+
+        <!-- Action Row -->
+        <div class="action-row">
+          <button id="btn-compare" class="btn btn-primary btn-large" disabled>
+            <span class="btn-text-content">Compare Documents</span>
+            <span class="spinner hidden" id="compare-spinner"></span>
+          </button>
+          <button id="btn-reset" class="btn btn-outline">Reset Inputs</button>
+        </div>
+      </section>
+
+      <!-- Empty State / Placeholder -->
+      <div id="empty-state" class="empty-state">
+        <div class="empty-icon">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.5">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+        </div>
+        <h3>No Analysis Performed Yet</h3>
+        <p>Upload a reference document and at least one candidate document above, then click <strong>Compare Documents</strong> to initiate the C DSA analysis.</p>
+      </div>
+
+      <!-- RESULTS CONTAINER (Hidden until compared) -->
+      <div id="results-container" class="results-container hidden">
+        <!-- 1. Central Similarity Indicator & Breakdown -->
+        <section class="results-overview-card card">
+          <div class="overview-header">
+            <div>
+              <span class="category-tag">COMPARISON RESULT</span>
+              <h3 id="res-comparison-title">Document Comparison</h3>
+            </div>
+            <div class="report-btn-group">
+              <button id="btn-view-report" class="btn btn-outline btn-sm">View Detailed Report</button>
+              <button id="btn-export-report" class="btn btn-primary btn-sm">Export Report File</button>
+            </div>
+          </div>
+
+          <div class="overview-grid">
+            <!-- Central Ring Gauge -->
+            <div class="gauge-col">
+              <div class="circular-progress-wrap">
+                <svg class="progress-ring" width="180" height="180">
+                  <circle class="progress-ring__bg" stroke-width="12" fill="transparent" r="74" cx="90" cy="90"/>
+                  <circle id="progress-indicator" class="progress-ring__bar" stroke-width="12" fill="transparent" r="74" cx="90" cy="90"/>
+                </svg>
+                <div class="gauge-label-content">
+                  <span id="score-text" class="score-number">0.00%</span>
+                  <span id="level-badge" class="level-badge">Pending</span>
+                </div>
+              </div>
+              <div id="identical-banner" class="identical-banner hidden">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                Identical Content Detected (100% Match)
+              </div>
+            </div>
+
+            <!-- 3 Linguistic Breakdown Cards -->
+            <div class="metrics-col">
+              <div class="metric-card">
+                <div class="metric-header">
+                  <span class="metric-name">Word Similarity</span>
+                  <span class="metric-weight">Weight: 30%</span>
+                </div>
+                <div class="metric-value-row">
+                  <span id="word-score" class="metric-number">0.00%</span>
+                  <span class="metric-algo">Hash Table Jaccard</span>
+                </div>
+                <div class="progress-bar-wrap"><div id="word-bar" class="progress-bar-fill"></div></div>
+              </div>
+
+              <div class="metric-card">
+                <div class="metric-header">
+                  <span class="metric-name">Sentence Similarity</span>
+                  <span class="metric-weight">Weight: 30%</span>
+                </div>
+                <div class="metric-value-row">
+                  <span id="sentence-score" class="metric-number">0.00%</span>
+                  <span class="metric-algo">Sentence Jaccard</span>
+                </div>
+                <div class="progress-bar-wrap"><div id="sentence-bar" class="progress-bar-fill"></div></div>
+              </div>
+
+              <div class="metric-card">
+                <div class="metric-header">
+                  <span class="metric-name">Phrase Similarity</span>
+                  <span class="metric-weight">Weight: 40%</span>
+                </div>
+                <div class="metric-value-row">
+                  <span id="phrase-score" class="metric-number">0.00%</span>
+                  <span class="metric-algo">KMP & Rabin-Karp</span>
+                </div>
+                <div class="progress-bar-wrap"><div id="phrase-bar" class="progress-bar-fill"></div></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 2. Document Statistics Cards -->
+        <section class="section-card">
+          <h3 class="subsection-title">Document Statistics</h3>
+          <div class="stats-grid">
+            <div class="stat-card">
+              <span class="stat-label">Reference Words</span>
+              <span id="stat-ref-words" class="stat-value">-</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">Compared Words</span>
+              <span id="stat-comp-words" class="stat-value">-</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">Common Unique Words</span>
+              <span id="stat-common-words" class="stat-value">-</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">Matching Sentences</span>
+              <span id="stat-matching-sentences" class="stat-value">-</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">Matching Phrases</span>
+              <span id="stat-matching-phrases" class="stat-value">-</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">Matching Phrase Words</span>
+              <span id="stat-phrase-words" class="stat-value">-</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- 3. Matching Content Cards -->
+        <section class="section-card">
+          <div class="section-header-row">
+            <div>
+              <h3 class="subsection-title">Matching Content</h3>
+              <p class="section-desc">Continuous matching phrases ($\ge 3$ words) identified across documents by the C string matching algorithms.</p>
+            </div>
+            <span id="phrases-count-badge" class="badge-subtle">0 Matches</span>
+          </div>
+
+          <div id="phrases-list" class="phrases-list">
+            <!-- Dynamic Match Cards inserted via app.js -->
+          </div>
+        </section>
+
+        <!-- 4. Text Comparison View (Side by Side) -->
+        <section class="section-card">
+          <div class="section-header-row">
+            <div>
+              <h3 class="subsection-title">Text Comparison View</h3>
+              <p class="section-desc">Side-by-side synchronized view showing matching regions highlighted via C backend boundary markers.</p>
+            </div>
+            <div class="view-legend">
+              <span class="legend-indicator"></span> Highlighted Matching Phrase
+            </div>
+          </div>
+
+          <div class="side-by-side-viewer">
+            <div class="text-pane">
+              <div class="pane-header">
+                <span class="pane-title">REFERENCE DOCUMENT</span>
+                <span id="pane-ref-name" class="pane-file"></span>
+              </div>
+              <div id="text-ref-view" class="text-pane-body"></div>
+            </div>
+
+            <div class="text-pane">
+              <div class="pane-header">
+                <span class="pane-title">COMPARED DOCUMENT</span>
+                <span id="pane-comp-name" class="pane-file"></span>
+              </div>
+              <div id="text-comp-view" class="text-pane-body"></div>
+            </div>
+          </div>
+        <!-- 5. Multiple Document Ranking (Active when multiple candidates are analyzed) -->
+        <section id="multi-doc-ranking-section" class="section-card hidden">
+          <div class="section-header-row">
+            <div>
+              <h3 class="subsection-title">Multiple Document Ranking</h3>
+              <p class="section-desc">Corpus comparison sorted in descending similarity order using custom recursive <strong>Merge Sort</strong> ($O(D \log D)$).</p>
+            </div>
+          </div>
+
+          <!-- Ranking Distribution Stats -->
+          <div id="ranking-stats-grid" class="ranking-stats-grid">
+            <div class="rstat-card"><span class="rstat-num" id="rstat-total">0</span><span class="rstat-title">Compared</span></div>
+            <div class="rstat-card vhigh"><span class="rstat-num" id="rstat-vhigh">0</span><span class="rstat-title">Very High</span></div>
+            <div class="rstat-card high"><span class="rstat-num" id="rstat-high">0</span><span class="rstat-title">High</span></div>
+            <div class="rstat-card moderate"><span class="rstat-num" id="rstat-mod">0</span><span class="rstat-title">Moderate</span></div>
+            <div class="rstat-card low"><span class="rstat-num" id="rstat-low">0</span><span class="rstat-title">Low</span></div>
+            <div class="rstat-card vlow"><span class="rstat-num" id="rstat-vlow">0</span><span class="rstat-title">Very Low</span></div>
+            <div class="rstat-card highlight"><span class="rstat-num" id="rstat-avg">0%</span><span class="rstat-title">Average Sim</span></div>
+          </div>
+
+          <!-- Ranking Table -->
+          <div class="table-container">
+            <table class="academic-table" id="ranking-table">
+              <thead>
+                <tr>
+                  <th style="width: 80px;">Rank</th>
+                  <th>Candidate Document</th>
+                  <th style="width: 160px;">Similarity %</th>
+                  <th style="width: 180px;">Similarity Level</th>
+                  <th style="width: 140px; text-align: right;">Action</th>
+                </tr>
+              </thead>
+              <tbody id="ranking-table-body">
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <!-- TAB 2: ALGORITHMS USED -->
+    <section id="tab-algorithms" class="tab-pane">
+      <div class="section-card">
+        <h2>Algorithms & Data Structures Used</h2>
+        <p class="section-desc">The system is written strictly in pure standard C (C11) without third-party dependencies or language runtime libraries.</p>
+
+        <div class="algo-grid">
+          <div class="algo-card">
+            <div class="algo-badge">DATA STRUCTURE</div>
+            <h3>Hash Table (Separate Chaining)</h3>
+            <p>Employs the <code>djb2</code> hashing algorithm with separate chaining for collision resolution. Used to store document vocabulary, track word frequencies in $O(1)$ expected time, and compute the word-level Jaccard similarity index.</p>
+          </div>
+
+          <div class="algo-card">
+            <div class="algo-badge">STRING MATCHING</div>
+            <h3>Knuth-Morris-Pratt (KMP)</h3>
+            <p>Constructs a Longest Prefix Suffix (LPS) $\pi$-table for candidate phrase patterns. Bypasses redundant character comparisons to achieve guaranteed $O(N + M)$ worst-case phrase search across text streams.</p>
+          </div>
+
+          <div class="algo-card">
+            <div class="algo-badge">STRING MATCHING</div>
+            <h3>Rabin-Karp Algorithm</h3>
+            <p>Computes rolling polynomial hashes modulo $10^9 + 7$ with base 256. Accelerates continuous substring searches by transitioning hash windows in $O(1)$ amortized time with verification checks.</p>
+          </div>
+
+          <div class="algo-card">
+            <div class="algo-badge">SORTING</div>
+            <h3>Merge Sort</h3>
+            <p>A recursive divide-and-conquer sorting algorithm implemented manually without <code>qsort()</code>. Orders candidate documents by similarity percentage in stable $O(D \log D)$ time.</p>
+          </div>
+
+          <div class="algo-card">
+            <div class="algo-badge">DATA STRUCTURE</div>
+            <h3>Dynamic Arrays</h3>
+            <p>Contiguously allocated memory buffers (<code>TokenArray</code>, <code>SentenceArray</code>, <code>MatchArray</code>, <code>PhraseMatchArray</code>, <code>RankedDocumentArray</code>) featuring geometric $2\times$ capacity growth and leak-safe reallocation.</p>
+          </div>
+
+          <div class="algo-card">
+            <div class="algo-badge">SEARCHING</div>
+            <h3>Linear & Threshold Search</h3>
+            <p>Provides fast sequential and criteria-based searching across ranked document arrays, enabling filtering by document filename and minimum similarity threshold ($\ge X\%$).</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 4: TECHNICAL DETAILS & ABOUT -->
+    <section id="tab-about" class="tab-pane">
+      <div class="section-card markdown-article">
+        <h2>Project Information & Technical Specifications</h2>
+
+        <h3>Problem Statement</h3>
+        <p>Academic institutions and software organizations face significant challenges in identifying content duplication and text recycling. Existing cloud solutions often rely on opaque black-box APIs or heavyweight external runtimes. This system provides a transparent, deterministic plagiarism detection engine written in standard C demonstrating foundational algorithms, optimal time/space complexity, and rigorous memory safety.</p>
+
+        <h3>Similarity Calculation Formula</h3>
+        <div class="formula-box">
+          $$\text{Overall Similarity} = 0.30 \times \text{Word Jaccard} + 0.30 \times \text{Sentence Jaccard} + 0.40 \times \text{Phrase Coverage}$$
+        </div>
+
+        <h3>Complexity Analysis</h3>
+        <table class="academic-table spec-table">
+          <thead>
+            <tr>
+              <th>Operation</th>
+              <th>Data Structure / Algorithm</th>
+              <th>Time Complexity</th>
+              <th>Space Complexity</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>Text Tokenization</td><td>In-place Array Scanner</td><td>$O(N)$</td><td>$O(N)$</td></tr>
+            <tr><td>Word Frequency Hashing</td><td>djb2 Hash Table</td><td>$O(W)$ expected</td><td>$O(W)$</td></tr>
+            <tr><td>Exact Phrase Search</td><td>KMP Algorithm</td><td>$O(N + M)$</td><td>$O(M)$</td></tr>
+            <tr><td>Rolling Window Search</td><td>Rabin-Karp</td><td>$O(N + M)$ avg</td><td>$O(1)$</td></tr>
+            <tr><td>Corpus Document Ranking</td><td>Recursive Merge Sort</td><td>$O(D \log D)$</td><td>$O(D)$</td></tr>
+          </tbody>
+        </table>
+
+        <h3>Academic Limitations & Disclaimers</h3>
+        <div class="notice-callout">
+          <strong>Important Notice:</strong> This system performs lexical and textual similarity analysis based on exact vocabulary, sentence Jaccard overlap, and continuous n-gram matching. Semantic paraphrasing using extensive synonym substitution or structural restructuring without shared n-grams may not be detected reliably. This software assists human evaluators and does not establish intentional plagiarism.
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- MODAL: Detailed Report View -->
+  <div id="report-modal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3>Forensic Plagiarism Detection Report</h3>
+        <button id="modal-close-btn" class="btn-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <pre id="modal-report-text" class="report-pre"></pre>
+      </div>
+      <div class="modal-footer">
+        <button id="modal-copy-btn" class="btn btn-outline">Copy Text</button>
+        <button id="modal-export-btn" class="btn btn-primary">Export to reports/</button>
+      </div>
+    </div>
+  </div>
+
+  <footer class="app-footer">
+    <div class="footer-container">
+      <span>Plagiarism Detection & Document Similarity Analysis System</span>
+      <span class="footer-sep">&bull;</span>
+      <span>C11 Engine &bull; Academic DSA Project</span>
+      <span class="footer-sep">&bull;</span>
+      <span>Zero Memory Leaks &bull; Strict GCC Compliant</span>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
