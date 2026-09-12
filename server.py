@@ -23,7 +23,8 @@ import pymupdf
 import docx
 import pptx
 
-PORT = 8080
+HOST = "0.0.0.0"
+DEFAULT_PORT = 8080
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UI_DIR = os.path.join(BASE_DIR, "ui")
 UPLOADS_DIR = os.path.join(BASE_DIR, "uploads")
@@ -32,10 +33,11 @@ EXTRACTED_DIR = os.path.join(UPLOADS_DIR, "extracted")
 REPORTS_DIR = os.path.join(BASE_DIR, "reports")
 DOCS_DIR = os.path.join(BASE_DIR, "documents")
 
-# Locate C executable
+# Locate C executable relative to project root
 EXECUTABLE_NAME = "plagiarism_detector.exe" if sys.platform.startswith("win") else "plagiarism_detector"
 C_EXECUTABLE = os.path.join(BASE_DIR, EXECUTABLE_NAME)
 
+# Ensure writable directories exist
 os.makedirs(ORIGINALS_DIR, exist_ok=True)
 os.makedirs(EXTRACTED_DIR, exist_ok=True)
 os.makedirs(REPORTS_DIR, exist_ok=True)
@@ -43,6 +45,41 @@ os.makedirs(DOCS_DIR, exist_ok=True)
 
 MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB upload limit
 SUPPORTED_EXTENSIONS = {".txt", ".pdf", ".docx", ".pptx"}
+
+
+def ensure_c_executable():
+    """Ensure C executable exists and has execute permissions. Compiles if needed on POSIX/Linux."""
+    if os.path.isfile(C_EXECUTABLE):
+        if not sys.platform.startswith("win"):
+            try:
+                st = os.stat(C_EXECUTABLE)
+                os.chmod(C_EXECUTABLE, st.st_mode | 0o755)
+            except Exception as e:
+                print(f"Warning: Could not set executable permissions on {C_EXECUTABLE}: {e}")
+        return True
+
+    src_dir = os.path.join(BASE_DIR, "src")
+    include_dir = os.path.join(BASE_DIR, "include")
+    if os.path.isdir(src_dir) and os.path.isdir(include_dir):
+        print(f"C engine executable '{C_EXECUTABLE}' not found. Compiling from C source files...")
+        import glob
+        c_files = glob.glob(os.path.join(src_dir, "*.c"))
+        if c_files:
+            cmd = [
+                "gcc", "-O2", "-Wall", "-Wextra", "-Wpedantic", "-Wshadow", "-Wconversion",
+                "-std=c11", f"-I{include_dir}", "-o", C_EXECUTABLE
+            ] + c_files
+            try:
+                subprocess.run(cmd, capture_output=True, text=True, check=True)
+                if not sys.platform.startswith("win"):
+                    st = os.stat(C_EXECUTABLE)
+                    os.chmod(C_EXECUTABLE, st.st_mode | 0o755)
+                print(f"Successfully compiled C engine: {C_EXECUTABLE}")
+                return True
+            except Exception as err:
+                print(f"Automatic C engine compilation failed: {err}")
+    print(f"Warning: C executable '{C_EXECUTABLE}' not found. Compilation with gcc may be required.")
+    return False
 
 
 def extract_text_from_pdf(filepath):
@@ -168,6 +205,14 @@ class PlagiarismRequestHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         path = parsed.path
+
+        if path in ("/api/health", "/health", "/healthz"):
+            self.send_json({
+                "status": "healthy",
+                "engine": "ready" if os.path.isfile(C_EXECUTABLE) else "missing",
+                "executable": os.path.basename(C_EXECUTABLE)
+            })
+            return
 
         if path == "/api/sample-docs":
             self.handle_sample_docs()
@@ -467,10 +512,38 @@ class PlagiarismRequestHandler(http.server.BaseHTTPRequestHandler):
             self.send_json({"success": False, "error": f"Report export failed: {str(e)}"}, 500)
 
 
-def run_server(port=PORT):
-    server_address = ("", port)
-    with socketserver.TCPServer(server_address, PlagiarismRequestHandler) as httpd:
-        print(f"Plagiarism Detection Server running on http://localhost:{port}")
+class ThreadedHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
+    daemon_threads = True
+    allow_reuse_address = True
+
+
+def get_port():
+    """Resolve port from CLI argument, PORT environment variable (Render), or default."""
+    # 1. Command-line argument: python server.py <port>
+    if len(sys.argv) > 1:
+        try:
+            return int(sys.argv[1])
+        except ValueError:
+            pass
+    # 2. Render / Cloud environment variable
+    env_port = os.environ.get("PORT")
+    if env_port:
+        try:
+            return int(env_port)
+        except ValueError:
+            pass
+    # 3. Fallback for local development
+    return DEFAULT_PORT
+
+
+def run_server(host=HOST, port=None):
+    if port is None:
+        port = get_port()
+    ensure_c_executable()
+    server_address = (host, port)
+    with ThreadedHTTPServer(server_address, PlagiarismRequestHandler) as httpd:
+        print(f"Plagiarism Detection Server running on http://{host}:{port}")
+        print(f"Loaded C Engine executable: {C_EXECUTABLE}")
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:
@@ -479,10 +552,4 @@ def run_server(port=PORT):
 
 
 if __name__ == "__main__":
-    p = PORT
-    if len(sys.argv) > 1:
-        try:
-            p = int(sys.argv[1])
-        except ValueError:
-            pass
-    run_server(p)
+    run_server()
