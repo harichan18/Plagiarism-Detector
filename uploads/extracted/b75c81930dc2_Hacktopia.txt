@@ -1,0 +1,162 @@
+1
+Pimpri Chinchwad Education Trust (PCET)
+Pimpri Chinchwad College of Engineering
+ChainNirbhar
+Problem Statement Title: PS 04 — Supply Chain Digital Twin
+Theme: Supply Chain & Logistics
+Team Name: Team_Hustlers
+Team Members:
+Kunal Honde
+Abhishek Funde
+Sharwari Patil
+Harichan Kushwaha
+Hacktopia 2026
+
+2
+Contents
+Project Overview
+Architecture & Tech Stack
+Feasibility & Sustainability
+Outcomes & Impact
+Research Basis & References
+
+Project Overview
+3
+Automatically attacks the supply chain in simulation
+Finds hidden single & combined failure points
+Ranks failures by potential damage
+Models suppliers, factories, warehouses & routes
+Tracks tier-2 / tier-3 dependencies
+Simulates disruption propagation across the network
+Measures Time-to-Survive vs Time-to-Recover
+Identifies nodes that cannot survive the recovery period
+Converts complex risk into simple days-based insight
+Prepares recovery plans before disruption
+Alternate supplier, route & inventory options
+Ready for rapid response when failure occurs
+AI Red-Team Engine
+Pre-Computed Recovery Playbooks
+Digital Supply Chain Twin
+TTS / TTR Resilience Engine
+PROPOSED SOLUTION
+ADDRESSING THE PROBLEM
+Discovers vulnerabilities users may not think to test
+Detects critical single points of failure
+Tests combined disruptions
+Designed for resource-constrained manufacturers
+Lightweight CSV-based onboarding
+Enables resilience without enterprise-scale infrastructure
+Shows why a recommendation is made
+Clear cost–delay–risk trade-offs
+Human approval remains in the loop
+Recovery plans are prepared in advance
+Compares cost, delay & risk
+Reduces decision-making during a crisis
+Hidden Risks
+Explainable Decisions
+Faster Recovery
+MSME Resilience
+3
+INNOVATION & UNIQUENESS
+Breaks the supply chain before reality does
+AI searches for worst-case failures automatically
+Moves from reactive → proactive resilience
+TTS/TTR gives risk in days, not abstract scores
+Clearly identifies when recovery exceeds survival time
+Makes risk easier to understand and act on
+Shows multiple recovery options
+Compares cost + delay + risk
+Gives managers a clear reason behind every recommendation
+Connects MSMEs with spare capacity
+Shares only capacity-level signals
+Creates cooperative backup during disruption
+Pre-Mortem Supply Chain
+Explainable Recovery
+Shared Resilience Pool
+Survival-Based Risk
+Map the Supply Chain
+AI Red-Team Stress Test
+Pre-Planned Recovery
+
+4
+Architecture & Tech Stack
+TECHNOLOGIES USED
+Frontend & Dashboard
+Backend & API
+Digital Twin & Graph
+AI / ML
+Simulation & Optimization
+Data & Deployment
+SYSTEM ARCHITECTURE
+
+5
+Feasibility & Sustainability
+TECHNICAL FEASIBILITY
+1
+SCALAIBILITY
+2
+ECONOMIC VIABILITY
+3
+COMPETITIVE EDGE
+Modular, open-source stack
+MVP: 3-tier chain, 3 disruption scenarios
+Human-in-the-loop, calibrated simulation
+NetworkX to Neo4j for larger graphs
+Parallel workers, cached playbooks
+Auto → Pharma → Food → Textiles
+Open-source stack, free-tier cloud pilot
+Subscription + cluster licensing
+Savings to be validated in pilot
+4
+
+6
+Outcomes & Impact
+WHO GAINS?
+Target Audience & Beneficiaries
+SDG ALIGNMENT
+Contributing to a more resilient and sustainable supply chain
+IMPACT
+Social, Environmental and Economic Change
+MSMEs
+Affordable resilience
+Hidden-risk visibility
+Business continuity
+Operations / Procurement
+Early warning
+Ranked recovery options
+Better decision making
+Cluster Managers
+Cluster risk view
+Shared resilience pool
+Coordination during crises
+OEMs & Consumers
+More reliable suppliers
+Fewer shortages
+Stable product availability
+Fewer production stoppages
+Lower emergency costs
+Fewer lost orders & penalties
+Stoppage days avoided (pilot KPI)
+MSMEs onboarded (pilot KPI)
+Pool matches created (pilot KPI)
+Less emergency freight
+Reduced spoilage and waste
+More efficient routing and lower emissions
+Economic Impact
+Social Impact
+Environmental Impact
+
+7
+Research Basis & References
+Ivanov & Dolgui (2021) — OR-methods for coping with the ripple effect in supply chains — Supports disruption propagation and resilience simulation. Research Paper
+Le & Fan (2024) — Digital Twins for Logistics and Supply Chain Systems — Supports digital twins for supply-chain modelling and decision-making. Research Paper
+Ponomarov & Holcomb (2009) — Understanding the Concept of Supply Chain Resilience — Establishes the foundation for resilience and recovery from disruptions. Research Paper
+AI for Supply Chain Resilience (2023) — Artificial Intelligence Techniques for Enhancing Supply Chain Resilience — Supports AI-based risk analysis and disruption management. Research Paper
+Digital Supply Chain Twin (2023) — Digital Supply Chain Twin for Enhancing Resilience and Sustainability — Supports simulation-based digital twins for resilient supply-chain planning. Research Paper
+Scan To Explore Our Sources
+REFERENCES
+RESEARCH
+Research papers on digital twins,supply chain resilience,AI-driven disruption simulation,and recovery optimization.
+
+8
+Thank You

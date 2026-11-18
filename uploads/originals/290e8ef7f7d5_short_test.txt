@@ -1,0 +1,1 @@
+This is a brief test document with only twenty words to verify that the application properly handles short inputs and displays the abstention state correctly.

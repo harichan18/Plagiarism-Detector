@@ -1,0 +1,1 @@
+This is a tiny document containing only sixteen words to verify that abstention remains cleanly handled.

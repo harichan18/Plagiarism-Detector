@@ -1,0 +1,1 @@
+My name is Rahul and I study computer science and data structures. In this paper we investigate algorithms for string matching. Specifically we use Knuth-Morris-Pratt and Rabin-Karp. We also implement a hash table with separate chaining.

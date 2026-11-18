@@ -1,0 +1,93 @@
+1
+Pimpri Chinchwad Education Trust (PCET)
+Pimpri Chinchwad College of Engineering
+Project Title(Strictly maintain total slides under 8)
+Problem Statement Title-
+Theme-
+Team Name
+Team Members
+Hacktopia 2026
+
+2
+Contents
+Project Overview
+Architecture & Tech Stack
+Feasibility & Sustainability
+Outcomes & Impact
+Research Basis & References
+
+Project Overview
+3
+Flexible cellulose substrate with lead-free Cu-based reagent
+Progressive response to cumulative H₂S exposure
+Protected control region, optical reference & batch QR code
+Converts colorimetric shift → worker/shift cumulative dose
+Dose expressed as ppm·h
+Logged to a secure DGMS/OISD compliance dashboard
+Regression-based non-linear dose model
+Calibrated against batch curves
+Lab-validated environmental kinetics
+Perspective correction using OpenCV
+CIELAB L*a*b* color-space conversion
+Normalization with on-band reference targets
+Disposable Passive Band
+Automated Optical Extraction
+Digital Audit Trail
+Kinetic & Batch Calibration
+PROPOSED SOLUTION
+ADDRESSING THE PROBLEM
+Captures chronic low-level C × exposure
+Instantaneous peak-alarm detectors miss this
+Reports a calibrated uncertainty band (±range)
+Avoids misleading single-point values
+Replaces human visual estimation
+Uses lighting-invariant smartphone colorimetry
+100% passive, battery-free & disposable
+No daily bump-testing or sensor replacement
+Cumulative Dose Tracking
+Objective Quantification
+Zero Active Maintenance
+Eliminates False Precision
+3
+INNOVATION & UNIQUENESS
+Low-cost, non-toxic copper chemistry
+Replaces lead-acetate strips
+Rejects glare, bad lighting & expired badges
+Ensures reliable readings
+TFLite/MobileNet scan check
+Blocks blurred or corrupted scans
+Detects heat, humidity & storage effects
+Flags compromised badges
+Lead-free Dosimeter
+Ai Image Quality
+Validity & Degradation
+Measurement Integrity
+
+4
+Architecture & Tech Stack
+TECHNOLOGIES USED
+Frontend & Interface
+Backend & Orchestration
+Database & Geospatial Data
+AI & Computer Vision
+Deployment & Offline Support
+Routing & Spatial Analysis
+
+5
+Feasibility & Sustainability
+Technical Feasibility
+Scalability
+Economic Viability
+Market/ competitive edge
+
+6
+Outcomes & Impact
+Who is the target audience
+SDG mapping
+Social, Environmental, Economic impact
+
+7
+Research Basis & References
+
+8
+Thank You

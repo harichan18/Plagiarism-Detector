@@ -1,0 +1,11 @@
+My name is Rahul, and I am a computer science student who enjoys learning about technology and developing software applications. I am especially interested in programming, data structures, algorithms, and modern application development.
+
+Throughout my academic journey, I have worked on different projects that helped me understand how theoretical concepts can be applied to practical problems. Building applications and experimenting with different technologies has helped me improve my programming and problem-solving skills.
+
+One of my major projects is a plagiarism detection and document similarity analysis system. This project uses data structures and algorithms to compare documents and detect similar content. A hash table is used for word frequency analysis, while KMP and Rabin-Karp algorithms are used to identify matching phrases.
+
+The system also uses Merge Sort for ranking documents based on their similarity percentage. It can generate detailed similarity reports containing matching phrases, document statistics, and calculated similarity scores.
+
+Developing this project has improved my understanding of data structures, string matching algorithms, memory management, and time and space complexity. It has also taught me how to organize a C project into multiple modules and test individual components properly.
+
+Besides academics, I enjoy exploring new technologies and improving my programming skills. My goal is to build useful software applications, work on challenging projects, and gain practical experience in the field of technology.

@@ -1,0 +1,1 @@
+This is a concise paragraph about machine learning concepts. It deliberately contains fewer than one hundred and fifty words so we can verify the statistical floor behavior.

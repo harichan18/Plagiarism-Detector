@@ -1,0 +1,1 @@
+Valid prose for testing adapter failure handling in the backend.

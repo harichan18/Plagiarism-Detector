@@ -1,0 +1,275 @@
+Experiment Number: 7
+
+NAME: HARICHAN KUSHWAHA	ROLLNO: 65
+
+CLASS: IT-B	BATCH: 3
+
+DATE OF PERFORMANCE: 25 Oct 2026
+
+Lab 7: Implement classical process synchronization problems using threads, mutexes, and semaphores to demonstrate synchronization mechanisms.
+
+Implement Reader-writer using Thread and Semaphore only Program:
+
+#include <stdio.h> #include <pthread.h> #include <unistd.h>
+
+#define SIZE 5
+
+#define ITEMS 10
+
+int buffer[SIZE];
+
+int in = 0, out = 0, count = 0;
+
+pthread_mutex_t mutex;
+
+void *producer(void *arg)
+
+{
+
+for (int item = 1; item <= ITEMS; item++)
+
+{
+
+while (1)
+
+{
+
+pthread_mutex_lock(&mutex);
+
+if (count < SIZE)
+
+{
+
+buffer[in] = item;
+
+printf("Producer produced: %d\n", item);
+
+in = (in + 1) % SIZE;
+
+count++;
+
+pthread_mutex_unlock(&mutex); break;
+
+}
+
+pthread_mutex_unlock(&mutex); usleep(10000);
+
+}
+
+}
+
+return NULL;
+
+}
+
+void *consumer(void *arg)
+
+{
+
+for (int i = 1; i <= ITEMS; i++)
+
+{
+
+while (1)
+
+{
+
+pthread_mutex_lock(&mutex);
+
+if (count > 0)
+
+{
+
+int item = buffer[out];
+
+printf("Consumer consumed: %d\n", item);
+
+out = (out + 1) % SIZE; count--;
+
+pthread_mutex_unlock(&mutex); break;
+
+}
+
+pthread_mutex_unlock(&mutex); usleep(10000);
+
+}
+
+}
+
+return NULL;
+
+}
+
+int main()
+
+{
+
+pthread_t p, c;
+
+pthread_mutex_init(&mutex, NULL);
+
+pthread_create(&p, NULL, producer, NULL); pthread_create(&c, NULL, consumer, NULL);
+
+pthread_join(p, NULL); pthread_join(c, NULL);
+
+pthread_mutex_destroy(&mutex);
+
+return 0;
+
+}Execution:
+
+Reader 3 is reading data: 0
+
+Reader 2 is reading data: 0
+
+Reader 1 is reading data: 0
+
+Writer 2 is writing data: 1
+
+Writer 1 is writing data: 2
+
+Implement Producer-consumer using Thread and Mutex only
+
+Program:
+
+#include <stdio.h> #include <pthread.h> #include <unistd.h>
+
+#define SIZE 5
+
+int buffer[SIZE];
+
+int in = 0, out = 0, count = 0;
+
+pthread_mutex_t mutex;
+
+void *producer(void *arg)
+
+{
+
+for (int i = 1; i <= 10; i++)
+
+{
+
+while (1)
+
+{
+
+pthread_mutex_lock(&mutex);
+
+if (count < SIZE)
+
+{
+
+buffer[in] = i; printf("Produced: %d\n", i);
+
+in = (in + 1) % SIZE;
+
+count++;
+
+pthread_mutex_unlock(&mutex); break;
+
+}
+
+pthread_mutex_unlock(&mutex); usleep(10000);
+
+}
+
+}
+
+return NULL;
+
+}
+
+void *consumer(void *arg)
+
+{
+
+for (int i = 1; i <= 10; i++)
+
+{
+
+while (1)
+
+{
+
+pthread_mutex_lock(&mutex);
+
+if (count > 0)
+
+{
+
+int item = buffer[out]; printf("Consumed: %d\n", item);
+
+out = (out + 1) % SIZE; count--;
+
+pthread_mutex_unlock(&mutex); break;
+
+}
+
+pthread_mutex_unlock(&mutex); usleep(10000);
+
+}
+
+}
+
+return NULL;
+
+}
+
+int main()
+
+{
+
+pthread_t p, c;
+
+pthread_mutex_init(&mutex, NULL);
+
+pthread_create(&p, NULL, producer, NULL); pthread_create(&c, NULL, consumer, NULL);
+
+pthread_join(p, NULL); pthread_join(c, NULL);
+
+pthread_mutex_destroy(&mutex);
+
+return 0;
+
+}Execution:
+
+Produced: 1
+
+Produced: 2
+
+Produced: 3
+
+Produced: 4
+
+Produced: 5
+
+Consumed: 1
+
+Consumed: 2
+
+Consumed: 3
+
+Consumed: 4
+
+Consumed: 5
+
+Produced: 6
+
+Produced: 7
+
+Produced: 8
+
+Produced: 9
+
+Produced: 10
+
+Consumed: 6
+
+Consumed: 7
+
+Consumed: 8
+
+Consumed: 9
+
+Consumed: 10
