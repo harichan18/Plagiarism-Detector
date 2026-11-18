@@ -1,0 +1,621 @@
+Contents Overview
+
+1. Introduction
+
+2. Cloud Platforms Used in Robotics: AWS IoT, Azure IoT Hub, ThingSpeak
+
+3. Real-Time Telemetry
+
+4. Edge vs. Cloud Analytics
+
+5. Data Security in Connected Robots
+
+6. ROS-IoT Integration
+
+7. Case Study: IoT-Enabled Warehouse Robot Fleet
+
+8. Conclusion
+
+9. References
+
+1. Introduction
+
+A stand-alone robot can only act on what it senses locally. A connected robot also streams data to remote systems, receives commands and updates, and takes part in fleet-wide optimisation. The enabling layer is the cloud IoT platform: a managed service that securely connects devices, ingests their messages, stores and analyses the data and exposes it to applications.
+
+This assignment studies three representative platforms (AWS IoT, Azure IoT Hub and ThingSpeak), explains real-time telemetry, compares edge and cloud analytics, and discusses data security for connected robots. It then presents a case study of an IoT-enabled warehouse robot fleet and explains the role of ROS-IoT integration, the bridge between the Robot Operating System running on the robot and the cloud services described here.
+
+2. Cloud Platforms Used in Robotics
+
+All IoT platforms solve the same core problems: device identity and authentication, a secure messaging channel, a digital representation of each device, rules to route data onward, storage and analytics, and tools to manage a fleet of devices over its lifetime. They differ in scale, ecosystem and target users.
+
+2.1 AWS IoT
+
+Amazon Web Services offers a family of IoT services, with AWS IoT Core at the centre. Robots connect to IoT Core as "things" and exchange messages with other AWS services.
+
+Key components
+
+Device gateway and message broker: supports MQTT (over TLS and WebSockets), HTTPS and LoRaWAN connectivity. It is a managed publish/subscribe broker, so no servers have to be run.
+
+Authentication and authorisation: each device is identified by an X.509 certificate (or other credentials) and governed by IoT policies that state which topics it may publish or subscribe to.
+
+Device Shadow: a JSON document stored in the cloud that holds the last reported and desired state of a device. A robot that is offline can still be "commanded" by changing the desired state; it synchronises when it reconnects.
+
+Rules engine: SQL-like rules (for example, SELECT battery, pose FROM 'fleet/+/telemetry' WHERE battery < 20) route messages to Lambda functions, DynamoDB, S3, Kinesis, Timestream, SNS and other services.
+
+Fleet management: IoT Device Management (jobs for over-the-air updates, fleet indexing, provisioning) and IoT Device Defender (audits device configuration and detects anomalous behaviour).
+
+Edge: AWS IoT Greengrass runs Lambda functions, containers and machine-learning models on the robot or an on-site gateway, processes data locally and syncs with the cloud when connected.
+
+Downstream services: Amazon S3 (storage of logs, video and rosbag files), Timestream (time-series), Kinesis (streaming), SageMaker (ML training) and QuickSight or Grafana (dashboards).
+
+Note on AWS RoboMaker
+
+AWS RoboMaker was a managed service for developing, simulating and deploying ROS applications. AWS announced end of support for it effective 10 September 2025, so new robotics designs should not depend on it. The usual approach today is to run ROS 2 workloads on the robot (with Greengrass or containers) and run simulation and CI workloads on general compute services such as EC2, ECS or EKS.
+
+2.2 Microsoft Azure IoT Hub
+
+Azure IoT Hub is a managed service that acts as the central message hub between IoT devices and cloud applications, with bi-directional communication.
+
+Messaging: device-to-cloud telemetry, cloud-to-device commands and file upload, using MQTT (also over WebSockets), AMQP (also over WebSockets) and HTTPS. IoT Hub supports MQTT v3.1.1 but is not a full-featured MQTT broker, so some features (such as retained messages) differ from a general broker.
+
+Identity: per-device identities in an identity registry, with authentication via X.509 certificates, shared access signature (SAS) tokens or TPM-based attestation.
+
+Device twins: JSON documents with *desired properties* (set by the cloud) and *reported properties* (set by the device), plus tags for querying. This is Azure's equivalent of the AWS device shadow.
+
+Direct methods: synchronous request-response calls to a device, for example "stop" or "return to dock".
+
+Message routing: built-in routing of telemetry to Event Hubs, Service Bus, Blob Storage and other endpoints based on message properties.
+
+Device Provisioning Service (DPS): zero-touch, just-in-time provisioning so thousands of robots can be enrolled automatically from the factory.
+
+Edge and analytics: Azure IoT Edge runs containerised modules on devices; Stream Analytics, Azure Data Explorer, Azure Machine Learning, Digital Twins and Power BI handle analytics, modelling and visualisation. Microsoft Defender for IoT provides security monitoring.
+
+Azure is often chosen by organisations already invested in Microsoft tools (Active Directory/Entra ID, Power BI, Dynamics) and in industrial settings that need strong enterprise integration.
+
+2.3 ThingSpeak
+
+ThingSpeak, run by MathWorks, is a lighter-weight IoT analytics platform. It is popular in education, prototyping and small deployments because it is easy to set up and is tightly integrated with MATLAB.
+
+Channels and fields: data is stored in channels, each with up to eight fields (for example temperature, battery, speed) plus location and status data. Each channel has read and write API keys.
+
+Protocols: a REST API and an MQTT interface for sending and retrieving data; devices such as the ESP32 or ESP8266 can post data with a single HTTP request.
+
+Analytics and visualisation: built-in plots, gauges and dashboards; MATLAB code can be run on the data (filtering, prediction, anomaly detection) and scheduled with TimeControl.
+
+Actions: the React app triggers actions when a condition is met; ThingHTTP calls external web services; ThingTweet-style notifications can alert users.
+
+Licensing: the free licence is intended for small non-commercial projects and allows up to about 3 million messages per year, a minimum interval of 15 seconds between updates per channel and 4 channels. Paid Standard and Academic licences allow updates as fast as every 1 second and larger capacity. These limits mean ThingSpeak suits slow monitoring of a robot (battery, temperature, status) but not high-rate telemetry or large fleets.
+
+2.4 Comparison
+
+Other options exist. Google Cloud IoT Core was retired in August 2023, so Google Cloud users now typically use a third-party or self-managed MQTT broker with Pub/Sub. Open-source stacks (Eclipse Mosquitto or EMQX with InfluxDB and Grafana, or ThingsBoard) are also common and keep data on the organisation's own servers.
+
+3. Real-Time Telemetry
+
+3.1 What is telemetry?
+
+Telemetry is the automatic collection and transmission of measurements from a remote system to a place where they can be monitored. In a robot, telemetry typically includes:
+
+Kinematic state: position, orientation, velocity, joint angles and odometry
+
+Sensor data: distance readings, IMU values, temperatures, camera or LiDAR summaries
+
+Health data: battery voltage and state of charge, motor currents and temperatures, CPU load, network signal strength, error codes
+
+Task data: current mission, task progress, payload status, cycle times
+
+Events and alarms: emergency stops, collisions, obstruction, low battery, geofence violations
+
+Real-time here means that the data arrives soon enough to be useful for the decision at hand. This is not the same as hard real-time control, which runs on the robot itself with deterministic deadlines of milliseconds. Cloud telemetry is generally soft real-time: latencies of tens of milliseconds to a few seconds.
+
+3.2 Typical telemetry pipeline
+
+3.3 Design considerations
+
+Topic design: use a hierarchical, consistent scheme, for example fleet/{site}/{robot_id}/telemetry/battery, so that subscriptions and access rules can use wildcards.
+
+Message rate and payload size: a robot may produce sensor data at hundreds of hertz, but only a summarised stream (for example 1 to 10 Hz for pose and 0.1 to 1 Hz for health) should be sent to the cloud. High-rate data such as raw LiDAR or video is kept locally or uploaded in batches.
+
+Quality of Service: MQTT QoS 0 for frequent, loss-tolerant data (position), QoS 1 for important data (alarms, task completion).
+
+Intermittent connectivity: robots move through Wi-Fi dead zones. The robot should buffer messages locally (store-and-forward) and resend, use device shadows or twins for state, and use MQTT keep-alive and Last Will messages to signal disconnection.
+
+Time synchronisation: time-stamp data at the source using synchronised clocks (NTP/PTP), because arrival time at the cloud is not measurement time.
+
+Latency budget: safety and motion control stay on the robot (1 to 10 ms), local coordination at the edge (10 to 100 ms), and cloud dashboards and analytics tolerate 100 ms to seconds or minutes.
+
+Observability: track message loss, delay and connection counts so that the telemetry system itself can be monitored.
+
+3.4 Example telemetry message
+
+A compact JSON payload published by a robot on the topic fleet/pune-wh1/amr-017/telemetry:
+
+{
+
+"ts": "2026-11-17T10:03:21.450Z",
+
+"robot_id": "amr-017",
+
+"pose": {"x": 12.43, "y": 5.08, "theta": 1.57},
+
+"speed_mps": 0.92,
+
+"battery_pct": 63.5,
+
+"motor_temp_c": [41.2, 43.0],
+
+"state": "CARRYING",
+
+"task_id": "T-88421",
+
+"wifi_rssi_dbm": -58
+
+}
+
+3.5 Uses of real-time telemetry
+
+Live fleet maps and status boards for operators
+
+Threshold alerts (low battery, overheating motor) and automatic dispatch of a maintenance task
+
+Remote diagnosis: engineers replay recent data when a robot faults
+
+Predictive maintenance: trends in motor current or vibration indicate wear before failure
+
+Performance analysis such as utilisation, idle time and task throughput
+
+Digital-twin updates and simulation of the physical site
+
+4. Edge vs. Cloud Analytics
+
+Edge analytics processes data on the robot itself or on a nearby on-site device (an industrial PC or gateway). Cloud analytics processes data in remote data centres. Neither is universally better; the right split depends on latency, bandwidth, reliability, cost and privacy.
+
+4.1 Comparison
+
+4.2 Why robots need both: a tiered architecture
+
+Tier 1: On the robot (device edge). Real-time control, obstacle avoidance, navigation and safety functions run locally, because they cannot wait for a network round trip or tolerate disconnection. Embedded accelerators (for example NVIDIA Jetson or Google Coral) run neural networks for perception.
+
+Tier 2: Site edge. A gateway or on-premises server coordinates robots on one site, aggregates data, runs a local broker and traffic management, and keeps working if the internet link is cut. AWS IoT Greengrass and Azure IoT Edge are commonly used for this role.
+
+Tier 3: Cloud. Receives summarised and selected data from all sites, trains and evaluates machine-learning models, performs fleet-wide optimisation and long-term analytics, and hosts dashboards and business integration.
+
+A common pattern is train in the cloud, infer at the edge: models are trained on large fleet datasets in the cloud, packaged, validated and pushed over the air to robots, which run them locally. Edge devices upload only interesting events (for example the camera frames where the model was uncertain), which are labelled and used to retrain the model, closing the loop.
+
+4.3 Choosing where to run an analysis
+
+Hard deadlines or safety impact (under about 100 ms): edge, on the robot.
+
+Must work without internet: edge.
+
+Raw data is large (video, 3D point clouds): reduce at the edge; upload features or short clips.
+
+Needs data from many robots or sites, or long history: cloud.
+
+Needs heavy compute (model training, large simulations): cloud.
+
+Contains personal or confidential data: process at the edge where possible, and send only anonymised results.
+
+5. Data Security in Connected Robots
+
+A connected robot is both a computer on a network and a machine that moves in the physical world. A security failure can therefore cause data theft, service disruption, damage and physical injury. Security must be designed in from the start and applied at every layer.
+
+5.1 Main threats
+
+5.2 Defence in depth
+
+Device layer
+
+Unique identity per robot using a hardware root of trust (TPM or secure element) that stores private keys so they cannot be copied
+
+Secure boot and signed firmware so that only authorised software runs
+
+Disable unused ports and services; remove default passwords; lock debug interfaces
+
+Run software with least privilege, in containers or sandboxes
+
+Keep an independent hardware safety system (emergency stop, safety-rated controller) that does not depend on network software
+
+Communication layer
+
+TLS 1.2/1.3 for all MQTT, HTTPS and WebSocket traffic, with certificate validation on both sides (mutual TLS)
+
+Secure Wi-Fi (WPA2/WPA3-Enterprise) and network segmentation; put robots on a separate VLAN from corporate IT
+
+VPN or private connectivity (private APN for cellular, AWS Direct Connect or Azure ExpressRoute) for sensitive sites
+
+Rate limiting and message-size limits at the broker
+
+Cloud and application layer
+
+Fine-grained authorisation: IoT policies (AWS) or access policies (Azure) that allow each robot to publish and subscribe only on its own topics
+
+Identity and access management (IAM) with least privilege, multi-factor authentication for operators and role-based access
+
+Encryption at rest for stored telemetry, video and logs, with managed key services (AWS KMS, Azure Key Vault) and key rotation
+
+Audit logging (CloudTrail, Azure Monitor) and anomaly detection (IoT Device Defender, Defender for IoT)
+
+Secure, signed over-the-air updates with staged rollout and rollback
+
+Certificate rotation and revocation, and a process to disable a lost or compromised robot
+
+ROS-specific security
+
+ROS 1 had no built-in security: any node on the network could publish or subscribe. ROS 2 is built on DDS, which has a security specification (DDS-Security), and the SROS2 tools set up authentication, encryption and access control for nodes and topics using certificates and permission files. Even with SROS2, ROS traffic should not be exposed directly to the internet; the cloud connection should go through a controlled bridge node using TLS-protected MQTT or HTTPS.
+
+Privacy and governance
+
+Robots with cameras and microphones collect personal data: workers in a warehouse, patients in a hospital, customers in a store. Organisations should collect only what is needed (data minimisation), anonymise or blur faces where possible, define retention periods, and comply with applicable laws such as India's Digital Personal Data Protection Act, 2023 and the EU GDPR. Standards and frameworks that guide secure design include IEC 62443 (industrial control system security), ISO/IEC 27001 (information security management), ISO 10218 and ISO 13849 (robot and machine safety) and the NIST Cybersecurity Framework.
+
+5.3 Security checklist for a connected robot
+
+Every robot has its own certificate; no shared or hard-coded credentials
+
+All traffic encrypted; servers and devices authenticate each other
+
+Topic-level permissions on the broker follow least privilege
+
+Firmware is signed; secure boot is enabled; OTA updates are staged
+
+Data at rest is encrypted; retention and access are defined
+
+Logs and alerts are monitored; there is an incident response plan
+
+Safety functions work independently of network and cloud
+
+Regular patching, vulnerability scanning and penetration tests
+
+6. ROS-IoT Integration
+
+6.1 ROS in brief
+
+The Robot Operating System (ROS) is an open-source middleware framework for robot software. A robot application is divided into nodes (processes) such as camera driver, localisation, planner and motor controller. Nodes exchange data through topics (publish/subscribe streams, for example /scan or /cmd_vel), services (request/response) and actions (long-running goals with feedback, such as "navigate to this pose"). ROS 2, the current generation, uses DDS as its communication layer and supports real-time and multi-robot use better than ROS 1.
+
+6.2 Why integrate ROS with IoT?
+
+ROS is excellent inside the robot (and on a local network), but it is not designed to talk directly to cloud platforms: DDS discovery uses multicast on the local network, there is no built-in cloud authentication, and bandwidth use is high. IoT protocols are designed for exactly the opposite situation: wide-area, secure, low-bandwidth, intermittent links. ROS-IoT integration connects the two worlds so that robot data flows into IoT platforms and cloud commands flow back to ROS.
+
+6.3 Integration approaches
+
+ROS-to-MQTT bridge: a ROS node subscribes to chosen topics, converts messages to JSON (or CBOR/Protobuf) and publishes them to an MQTT broker (AWS IoT Core, Azure IoT Hub, Mosquitto). In the reverse direction, it receives MQTT commands and publishes them as ROS topics or calls ROS services/actions. Packages such as mqtt_bridge (ROS 1) and several community bridges for ROS 2 provide this, or a small custom node can be written.
+
+rosbridge_suite: exposes ROS topics, services and parameters as a JSON API over WebSocket, so web dashboards and browser or mobile applications can talk to ROS directly. Used with a web server or an authenticated gateway, it is a convenient way to build operator interfaces.
+
+Cloud-vendor SDKs in a ROS node: a node uses the AWS IoT Device SDK or the Azure IoT Device SDK (or the Greengrass IPC interface) to connect to the platform with a device certificate. This supports device shadows/twins and jobs as well as telemetry.
+
+Edge runtime components: run the ROS bridge as a Greengrass component or an IoT Edge module, so that the cloud platform can deploy, update and monitor it like any other fleet software.
+
+HTTP REST nodes: simple nodes that post values to services like ThingSpeak, suitable for slow monitoring and teaching.
+
+micro-ROS: brings ROS 2 concepts to microcontrollers (for example ESP32 or STM32 boards) via an agent on the main computer, so small sensor nodes can join the ROS graph and, through the main bridge, the IoT cloud.
+
+Data logging with rosbag: ROS bag files (rosbag2) record topics for replay; the robot can upload them to cloud storage (S3 or Blob) when it is docked and connected, giving engineers complete data for debugging and ML training.
+
+Fleet coordination: open frameworks such as Open-RMF coordinate multiple robots and building systems, and typically use a site server and a cloud or on-premises message layer to link fleets of different vendors.
+
+6.4 Example: ROS 2 node publishing telemetry to MQTT
+
+The following illustrative Python node subscribes to the robot's battery topic and publishes a JSON message to an MQTT broker over TLS. The broker address and certificate paths are placeholders.
+
+import json, ssl, rclpy
+
+from rclpy.node import Node
+
+from sensor_msgs.msg import BatteryState
+
+import paho.mqtt.client as mqtt
+
+class MqttBridge(Node):
+
+def __init__(self):
+
+super().__init__('mqtt_bridge')
+
+self.client = mqtt.Client(client_id='amr-017')
+
+self.client.tls_set(ca_certs='AmazonRootCA1.pem',
+
+certfile='device.pem.crt',
+
+keyfile='private.pem.key',
+
+tls_version=ssl.PROTOCOL_TLSv1_2)
+
+self.client.connect('YOUR-ENDPOINT.iot.REGION.amazonaws.com', 8883)
+
+self.client.loop_start()
+
+self.create_subscription(BatteryState, '/battery_state',
+
+self.on_battery, 10)
+
+def on_battery(self, msg):
+
+payload = {'battery_pct': round(msg.percentage * 100, 1),
+
+'voltage': msg.voltage}
+
+self.client.publish('fleet/wh1/amr-017/telemetry',
+
+json.dumps(payload), qos=1)
+
+def main():
+
+rclpy.init()
+
+rclpy.spin(MqttBridge())
+
+if __name__ == '__main__':
+
+main()
+
+The same node would also subscribe to a command topic (for example fleet/wh1/amr-017/cmd) and translate valid, authenticated commands into ROS actions, after checking them against an allow-list of permitted commands.
+
+6.5 Design guidelines for ROS-IoT bridges
+
+Bridge only what is needed. Do not forward every ROS topic; select, throttle and down-sample.
+
+Keep control local. Closed-loop control and safety stay in ROS on the robot; the cloud sends goals, not motor torques.
+
+Validate every incoming command (schema, range, authorisation) before it reaches ROS; never forward raw cloud messages straight into actuator topics.
+
+Map identities. Each robot has its own cloud identity; the bridge node holds credentials in secure storage.
+
+Handle disconnection. Buffer outgoing data, and keep the robot operating safely and autonomously offline.
+
+Use standard message formats (ROS message definitions converted to JSON schemas) so cloud applications do not depend on ROS internals.
+
+Monitor the bridge itself with heartbeats and metrics.
+
+7. Case Study: IoT-Enabled Warehouse Robot Fleet
+
+Note: this case study describes a representative, reference-style deployment based on common industry practice (autonomous mobile robot fleets in fulfilment centres, such as those used by large e-commerce and logistics operators). The site name, numbers and component choices are illustrative, not measurements from a specific company.
+
+7.1 Background and problem
+
+A medium-sized e-commerce fulfilment centre handles thousands of orders per day. Human pickers walk long distances between shelves, which limits throughput, increases fatigue and causes errors. Demand peaks (festival sales) require rapid scaling. The operator decides to deploy a fleet of autonomous mobile robots (AMRs) that carry shelves or totes to picking and packing stations, and to connect them to a cloud IoT platform for fleet visibility and optimisation.
+
+7.2 Objectives
+
+Increase order throughput and reduce travel time per order
+
+Keep robots operating safely around people and each other
+
+Provide real-time visibility of every robot and task
+
+Reduce unplanned downtime through predictive maintenance
+
+Scale the fleet up and down without re-engineering the system
+
+7.3 System architecture
+
+Robot (device edge)
+
+Hardware: differential-drive or omnidirectional base, lifting mechanism, battery pack with a battery management system, onboard computer (an industrial single-board computer or NVIDIA Jetson) and a safety-rated controller.
+
+Sensors: 2D/3D LiDAR for mapping and obstacle detection, wheel encoders and Hall sensors for odometry, an IMU (gyroscope and accelerometer) for heading, ultrasonic and infrared proximity sensors as close-range backup, cameras for barcode/fiducial reading, and temperature sensors on motors and battery.
+
+Software: ROS 2 running localisation (SLAM/AMCL), navigation (Nav2), obstacle avoidance, docking and task execution nodes; a ROS-IoT bridge node; and a local safety layer that stops the robot if sensors report a person too close.
+
+Connectivity: dual-band Wi-Fi with roaming across access points; MQTT over TLS to the site gateway and cloud.
+
+Site edge
+
+An on-premises server runs the fleet manager (task allocation, traffic management, charging scheduling), a local MQTT broker, a Greengrass core device or IoT Edge runtime and a local time-series database. If the internet link fails, the warehouse keeps running.
+
+Cloud
+
+AWS IoT Core (or Azure IoT Hub) provides device identity, secure messaging, device shadows/twins and OTA jobs.
+
+Rules route telemetry to Timestream/Data Explorer for time-series storage, S3/Blob for logs and rosbag uploads, and Lambda/Functions for alerts.
+
+Analytics and ML: SageMaker or Azure ML train predictive-maintenance models and optimise slotting and routing from historical task data.
+
+Applications: Grafana/Power BI dashboards for operations managers, integration with the Warehouse Management System (WMS) and ERP, and a mobile app for supervisors.
+
+7.4 Data flow
+
+7.5 Role of edge and cloud analytics
+
+On the robot: obstacle detection, localisation, speed limits near people, battery-aware behaviour, and basic anomaly filters, all of which must run in milliseconds and without internet.
+
+Site edge: traffic management (preventing deadlocks at intersections), task assignment and local dashboards.
+
+Cloud: predictive maintenance models (for example estimating remaining useful life of motors and batteries), demand forecasting, route and layout optimisation, cross-site benchmarking and reporting.
+
+7.6 Security measures
+
+Each robot holds a unique X.509 certificate in a secure element; mutual TLS to the broker
+
+Robots, site server and corporate IT are on separate network segments
+
+IoT policies restrict each robot to its own topics
+
+Signed OTA updates deployed first to a small test group, then to the whole fleet
+
+Emergency stop and safety lidar work independently of software and network
+
+Camera data is processed locally; only event metadata and short, access-controlled clips leave the site
+
+Audit logs and anomaly detection watch for unusual command patterns
+
+7.7 Role of ROS-IoT integration in this case
+
+ROS-IoT integration is what turns a set of capable robots into a managed, observable fleet:
+
+Telemetry out: the bridge converts ROS topics (/odom, /battery_state, /diagnostics) into compact MQTT messages for the dashboards and analytics.
+
+Commands in: task goals from the fleet manager arrive as MQTT messages and are translated into ROS 2 actions after validation.
+
+Digital shadow: the cloud holds the latest reported state of every robot, so supervisors can see and plan even when a robot is briefly offline.
+
+Remote diagnostics: rosbag recordings are uploaded when a fault occurs, so engineers can replay the situation.
+
+OTA updates: new ROS packages or ML models are delivered as signed jobs and deployed as containers or components.
+
+Hardware independence: the same bridge can connect to AWS, Azure or an on-premises broker with only configuration changes, because the robot application speaks ROS and the bridge speaks the platform's protocol.
+
+7.8 Benefits and expected outcomes
+
+The table summarises the kinds of improvement operators typically target. The figures are illustrative ranges used for planning, not guaranteed results.
+
+7.9 Challenges and lessons learned
+
+Wi-Fi coverage and roaming are the most common source of problems; do a site survey and design for dead zones with offline autonomy.
+
+Mixed human-robot environments require certified safety systems and clear procedures; the cloud must never be in the safety loop.
+
+Data volume and cost grow quickly; decide early what is processed at the edge and what is sent to the cloud.
+
+Integration effort with the WMS/ERP is often larger than the robot work itself.
+
+Security and lifecycle management (certificate renewal, patching) need ongoing processes, not just initial setup.
+
+Vendor lock-in: use open standards (ROS 2, MQTT, JSON schemas) so the platform can be changed.
+
+8. Conclusion
+
+Cloud IoT platforms turn individual robots into connected, manageable fleets. AWS IoT and Azure IoT Hub provide secure, large-scale device connectivity, twins or shadows, rules, edge runtimes and links to analytics and machine learning, while ThingSpeak provides a simple way to visualise and analyse slower data in prototypes and education. Real-time telemetry gives operators visibility and enables predictive maintenance, provided data is summarised, time-stamped and delivered reliably over unreliable networks.
+
+The best architecture is hybrid: time-critical control, safety and perception stay at the edge, while fleet-wide learning, optimisation and reporting run in the cloud. Because robots can move physically and handle sensitive data, security has to be layered: unique device identities, encrypted channels, least-privilege access, signed updates, ROS 2 security and independent safety systems. ROS-IoT integration, through bridges such as MQTT nodes, rosbridge and edge runtime components, is the link that carries robot data to the cloud and cloud decisions back to the robot, as demonstrated in the warehouse fleet case study.
+
+9. References
+
+Amazon Web Services, AWS IoT Core and AWS IoT Greengrass developer guides. docs.aws.amazon.com
+
+Amazon Web Services, AWS RoboMaker developer guide, end-of-support notice (10 September 2025). docs.aws.amazon.com/robomaker
+
+Microsoft, Azure IoT Hub, Device Provisioning Service and Azure IoT Edge documentation. learn.microsoft.com/azure/iot-hub
+
+MathWorks, ThingSpeak documentation and Licensing FAQ. thingspeak.mathworks.com/pages/license_faq
+
+Open Robotics, ROS 2 documentation, rosbridge_suite, micro-ROS and SROS2 documentation. docs.ros.org
+
+OASIS, MQTT Version 3.1.1 and 5.0 specifications.
+
+Object Management Group, DDS Security specification.
+
+IEC 62443 series (industrial automation and control system security); ISO/IEC 27001; NIST Cybersecurity Framework.
+
+Government of India, Digital Personal Data Protection Act, 2023; Regulation (EU) 2016/679 (GDPR).
+
+Open-RMF project documentation. openrobotics.org
+
+Feature AWS IoT Azure IoT Hub ThingSpeak
+
+Target users Enterprises, startups, large fleets Enterprises, industrial and Microsoft-centred organisations Students, makers, prototypes, small projects
+
+Protocols MQTT, MQTT over WebSockets, HTTPS, LoRaWAN MQTT, AMQP, HTTPS (plus WebSockets) HTTP REST, MQTT
+
+Device identity X.509 certificates, IoT policies X.509, SAS tokens, TPM; DPS for provisioning Per-channel API keys
+
+Device state Device Shadow Device twin Channel fields (no true twin)
+
+Rules / routing IoT Rules engine to Lambda, S3, Kinesis, etc. Message routing to Event Hubs, Storage, etc. React, ThingHTTP, MATLAB analysis
+
+Edge computing IoT Greengrass Azure IoT Edge None built in (edge logic runs on the device)
+
+Analytics and ML SageMaker, Timestream, Kinesis, QuickSight Stream Analytics, Azure ML, Data Explorer, Power BI MATLAB analytics and visualisation
+
+Scale Very large (millions of devices) Very large (millions of devices) Small; message rate and channel limits
+
+Cost model Pay per connectivity, messages and rules Tiered by messages per day and units Free limited tier; paid licences
+
+Best robotic use Fleet telemetry, OTA, cloud ML Industrial fleets with enterprise integration Teaching, prototype dashboards, slow monitoring
+
+Stage What happens Typical technologies
+
+1. Acquire Sensors and controller state are sampled on the robot ROS topics, sensor drivers, microcontroller firmware
+
+2. Filter and package Values are down-sampled, filtered, time-stamped and serialised (JSON, CBOR, Protobuf) Edge node, small ROS node, Greengrass component or IoT Edge module
+
+3. Transmit Messages are published over a secure link with chosen QoS MQTT over TLS on Wi-Fi, 4G/5G or Ethernet
+
+4. Ingest The broker authenticates devices, applies policies and fans out messages AWS IoT Core, Azure IoT Hub, Mosquitto/EMQX
+
+5. Route Rules send data to storage, stream processors or alert services IoT Rules, message routing, Kafka/Kinesis/Event Hubs
+
+6. Store Time-series and object data are stored Timestream, InfluxDB, Data Explorer, S3/Blob
+
+7. Analyse and act Dashboards, alerts, ML and commands back to the robot Grafana, Power BI, QuickSight, Lambda/Functions, MATLAB
+
+Aspect Edge analytics Cloud analytics
+
+Location On the robot or an on-premises gateway/server Remote data centre (AWS, Azure, etc.)
+
+Latency Milliseconds; no round trip over the internet Tens of milliseconds to seconds, depending on network
+
+Connectivity dependence Works offline Needs a working connection
+
+Bandwidth use Low; only results or summaries are sent High if raw data is uploaded
+
+Compute and storage Limited by robot power, size and cost Almost unlimited, elastic
+
+Scope of view Single robot or local site Entire fleet, many sites, long history
+
+Typical workloads Obstacle detection, SLAM, control, safety, anomaly filters, on-device inference Model training, fleet optimisation, long-term trends, reporting, simulation
+
+Privacy Sensitive data (video, patient images) can stay local Data leaves the site, requiring stronger governance
+
+Cost profile Hardware cost on each robot; low running cost Pay-as-you-go; costs grow with data volume
+
+Updates Requires pushing software to devices (OTA) Centrally updated and scaled
+
+Threat Description Possible impact
+
+Eavesdropping Intercepting unencrypted telemetry or video on Wi-Fi or the internet Leak of site layouts, operations, patient or customer data
+
+Spoofing / impersonation Fake device or fake server using stolen or default credentials False data injected; attacker controls robots
+
+Command injection / tampering Altering commands or messages in transit or at the broker Unsafe motion, sabotage, production halts
+
+Malicious or tampered firmware Unsigned or compromised updates Persistent compromise of the fleet
+
+Denial of service Flooding the network or broker Loss of monitoring and coordination
+
+Credential theft and weak passwords Hard-coded keys, default passwords, shared secrets Large-scale unauthorised access
+
+Physical access Opening a robot, reading flash memory, USB ports Key extraction, tampering
+
+Misconfigured cloud Public storage buckets, over-broad permissions Mass data exposure
+
+ROS (inside the robot) IoT platform (outside the robot)
+
+Topics at high rate on a local network Selected, summarised messages over MQTT/HTTPS across the internet
+
+Nodes, topics, services, actions Things/devices, topics, twins/shadows, jobs
+
+DDS discovery and QoS profiles Certificates, policies, brokers, rules
+
+Real-time control and perception Fleet monitoring, analytics, storage, business systems
+
+Step Flow Example
+
+1 WMS creates a pick task and sends it to the fleet manager Order #4521: move shelf S-118 to station 4
+
+2 Fleet manager assigns the nearest available robot and plans a path amr-017 selected; route avoids busy aisle B
+
+3 Command is delivered to the robot through MQTT and the ROS-IoT bridge Bridge converts it into a Nav2 navigation goal
+
+4 Robot navigates autonomously using local sensing and control LiDAR avoids a pallet; speed reduced near a worker
+
+5 Robot streams telemetry (position, battery, state) at 1 to 5 Hz to the site edge; summarised data goes to the cloud Dashboard shows amr-017 CARRYING at 63% battery
+
+6 On completion, the robot reports task status; the WMS is updated Task T-88421 DONE; robot returns to charging if battery below threshold
+
+7 Cloud analytics process fleet-wide data Model flags rising motor current on amr-009 for inspection
+
+Metric Before (manual) After (AMR fleet + IoT) Reason
+
+Picker walking distance High (long aisle travel) Greatly reduced Robots carry goods to pickers
+
+Orders per hour per picker Baseline Often noticeably higher Less walking, more picking
+
+Unplanned robot downtime Not applicable / reactive repairs Reduced Predictive maintenance from telemetry
+
+Time to detect a fault Minutes to hours Seconds Real-time alerts
+
+Scaling for peak season Hire and train temporary staff Add robots to the fleet Zero-touch provisioning and fleet manager
+
+Visibility Limited, manual reporting Live, site-wide and multi-site Cloud dashboards

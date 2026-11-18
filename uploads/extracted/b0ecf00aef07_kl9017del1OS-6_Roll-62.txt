@@ -1,0 +1,155 @@
+Experiment Number: 6
+
+Problem Statement: Implement multithreading using the POSIX pthread library by developing a matrix multiplication application using pthread_create(), pthread_join(), and pthread_exit().
+
+NAME: Kunal Honde	ROLLNO: 62
+
+CLASS: IT-B	BATCH: 3
+
+DATE OF PERFORMANCE: 15 Oct 2026
+
+Program: #include <stdio.h> #include <stdlib.h>
+
+#include <pthread.h>
+
+#define N 3
+
+int A[N][N] = {
+
+{1, 2, 3},
+
+{4, 5, 6},
+
+{7, 8, 9}
+
+};
+
+int B[N][N] = {
+
+{9, 8, 7},
+
+{6, 5, 4},
+
+{3, 2, 1}
+
+};
+
+int C[N][N];
+
+void *multiply(void *arg)
+
+{
+
+int row = *(int *)arg;
+
+for (int j = 0; j < N; j++)
+
+{
+
+C[row][j] = 0;
+
+for (int k = 0; k < N; k++)
+
+{
+
+C[row][j] += A[row][k] * B[k][j];
+
+}
+
+}
+
+printf("Thread %d completed Row %d\n", row, row);
+
+pthread_exit(NULL);
+
+}
+
+int main()
+
+{
+
+pthread_t threads[N]; int rows[N];
+
+for (int i = 0; i < N; i++)
+
+{
+
+rows[i] = i;
+
+pthread_create( &threads[i], NULL,
+
+multiply, &rows[i]
+
+);
+
+}
+
+for (int i = 0; i < N; i++)
+
+{
+
+pthread_join(threads[i], NULL);
+
+}
+
+printf("\nMatrix A:\n");
+
+for (int i = 0; i < N; i++)
+
+{
+
+for (int j = 0; j < N; j++)
+
+{
+
+printf("%d\t", A[i][j]);
+
+}
+
+printf("\n");
+
+}
+
+printf("\nMatrix B:\n");
+
+for (int i = 0; i < N; i++)
+
+{
+
+for (int j = 0; j < N; j++)
+
+{
+
+printf("%d\t", B[i][j]);
+
+}
+
+printf("\n");
+
+}
+
+// Result
+
+printf("\nResult Matrix C = A x B:\n");
+
+for (int i = 0; i < N; i++)
+
+{
+
+for (int j = 0; j < N; j++)
+
+{
+
+printf("%d\t", C[i][j]);
+
+}
+
+printf("\n");
+
+}
+
+return 0;
+
+}
+
+Output

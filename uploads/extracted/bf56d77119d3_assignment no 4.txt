@@ -1,0 +1,910 @@
+Tutorial 4
+
+Introduction and Project Context
+
+1.1 The Smart Haptic Guide Cane
+
+The Smart Haptic Guide Cane is an assistive robotics project that helps a visually impaired person detect obstacles without relying on sound. Two HC-SR04 ultrasonic sensors mounted at different heights measure the distance to obstacles in front of the user; an MPU-6050 inertial sensor measures tilt and sudden motion; and an ESP32 microcontroller fuses these readings and drives vibration (haptic) motors in the handle. The stronger or faster the vibration, the closer the obstacle. The complete hardware set was sourced for roughly ₹1090, which makes the design affordable for real-world use.
+
+This report explains the embedded-systems theory behind such a device and applies each concept directly to the cane. It covers the ATmega328P architecture (memory, ports, timers, interrupts, peripherals), the role of the ESP32 as an IoT edge node, low-power embedded design, and firmware over-the-air (OTA) updates.
+
+1.2 How the ATmega328P and the ESP32 fit this project
+
+The cane’s main controller is the ESP32. The ATmega328P (the chip on the Arduino Uno and Nano) is the classic reference microcontroller taught in embedded courses, and it is also what most students use while prototyping. It is therefore treated in this report in two ways:
+
+As the foundation of theory: every concept — registers, ports, timers, interrupts, sleep modes — exists in the ESP32 in an extended form. Understanding the ATmega328P makes the ESP32 easier to understand.
+
+As a practical sub-system option: the ATmega328P can be used as a low-cost, ultra-low-power companion controller (for example, a dedicated motor/sensor manager that wakes the ESP32 only when needed), or as the main controller of a simplified cane without wireless features. Section 2.8 shows exactly how.
+
+1.3 Bill of materials (functional view)
+
+2. ATmega328P Architecture
+
+2.1 Overview
+
+The ATmega328P is an 8-bit AVR microcontroller from Microchip (formerly Atmel) based on an enhanced RISC (Reduced Instruction Set Computer) core. It combines a CPU, memory, I/O ports, timers, communication interfaces and an analog-to-digital converter on a single chip. Because most of its 131 instructions execute in a single clock cycle, it delivers about 1 MIPS per MHz — up to 20 MIPS at 20 MHz.
+
+Figure 2: ATmega328P internal block diagram
+
+2.2 CPU core and instruction execution
+
+The CPU contains three key elements. The Arithmetic Logic Unit (ALU) performs arithmetic and logic operations directly on any two of the 32 general-purpose 8-bit registers (R0–R31) in a single cycle. The Program Counter (PC) holds the address of the next instruction in Flash. The Status Register (SREG) holds flags — Carry (C), Zero (Z), Negative (N), Overflow (V), Sign (S), Half-carry (H), Transfer (T) and the global Interrupt enable (I) bit.
+
+Registers R26–R31 are paired into the 16-bit pointer registers X, Y and Z, used to address data memory and, in the case of Z, program memory. The stack pointer (SP) is a 16-bit register in I/O space that points into SRAM. AVR uses a two-stage pipeline — while one instruction executes, the next is fetched — which is how single-cycle execution is achieved.
+
+Harvard architecture
+
+Program and data are stored in separate memories with separate buses. The CPU can fetch an instruction and access data in the same cycle, which increases throughput and prevents the program from being accidentally overwritten by data writes. A consequence is that constant tables stored in Flash must be read with special instructions (e.g. pgm_read_byte(), or the Arduino F() and PROGMEM macros).
+
+2.3 Memory organization
+
+The ATmega328P has three separate memory areas, shown in Figure 3.
+
+Figure 3: Memory organization of the ATmega328P
+
+Flash program memory (32 KB): stores the firmware and constants. It is organised as 16 K × 16-bit words. The reset and interrupt vector table sits at the start (address 0x0000). The memory is divided into an Application section and a Boot Loader section; a small bootloader (such as Optiboot, 0.5 KB) can reprogram the application section using the Store Program Memory (SPM) instruction — this is how the Arduino IDE uploads code over serial.
+
+SRAM data memory (2 KB): the address space begins with the 32 registers (0x0000–0x001F), then 64 I/O registers (0x0020–0x005F), then 160 extended I/O registers (0x0060–0x00FF), and finally the 2 KB internal SRAM (0x0100–0x08FF). Global/static variables (.data, .bss) and the heap grow upward from the start of SRAM, while the stack grows downward from RAMEND (0x08FF). If they meet, the program crashes (stack overflow).
+
+EEPROM (1 KB): non-volatile memory for settings that must survive power-off — for example calibration values or user preferences. It is accessed byte-by-byte through the EEAR, EEDR and EECR registers (or EEPROM.read()/write() in Arduino) and wears out after about 100 000 writes per cell, so frequently changing values should not be stored there.
+
+2.4 I/O ports
+
+The ATmega328P has three 8-bit-wide ports — Port B, Port C and Port D — giving 23 usable I/O pins (Figure 4). Almost every pin is multiplexed with an alternate function such as PWM output, ADC input, a serial line or an external interrupt.
+
+Figure 4: ATmega328P (DIP-28) pinout with alternate functions
+
+Each port is controlled by three registers (replace x with B, C or D):
+
+Each pin can sink or source up to about 20 mA (absolute maximum 40 mA), and the whole chip is limited to about 200 mA in total. This is why a vibration motor (typically 60–100 mA) must never be connected directly to a pin: a transistor is required.
+
+Listing 1 — Direct port access in avr-gcc
+
+#include <avr/io.h>
+
+int main(void) {
+
+DDRB  |=  (1 << PB5);     // PB5 (Arduino pin 13) as OUTPUT
+
+DDRD  &= ~(1 << PD2);     // PD2 as INPUT
+
+PORTD |=  (1 << PD2);     // enable internal pull-up on PD2
+
+while (1) {
+
+if (!(PIND & (1 << PD2)))   // button pressed (active low)?
+
+PORTB |=  (1 << PB5);   // LED on
+
+else
+
+PORTB &= ~(1 << PB5);   // LED off
+
+}
+
+}
+
+2.5 Timers and counters
+
+A timer counts clock pulses from the system clock (through a prescaler); a counter counts pulses from an external pin. The same hardware does both. Timers let the microcontroller measure time, generate precise periodic events and produce PWM signals without occupying the CPU.
+
+Prescaler and timing
+
+The timer clock is f_clk / N, where the prescaler N can be 1, 8, 64, 256 or 1024 (Timer2 also offers 32 and 128). At 16 MHz with N = 64 the timer ticks at 250 kHz, i.e. every 4 µs. An 8-bit timer then overflows every 256 × 4 µs = 1.024 ms.
+
+Operating modes
+
+Normal mode: the counter counts up to its maximum, overflows to zero, and sets the overflow flag (TOV). Simple time-base.
+
+CTC (Clear Timer on Compare Match): the counter resets when it equals OCRnA. The interrupt frequency is f = f_clk / (N × (1 + OCRnA)). Used for exact periodic ticks.
+
+Fast PWM: the counter counts 0 → TOP and restarts; the output pin is set at BOTTOM and cleared on compare match. PWM frequency f = f_clk / (N × 256) for 8-bit mode; the duty cycle is set by OCRnx / 256.
+
+Phase-correct PWM: the counter counts up then down; produces symmetric pulses with half the frequency, preferred for motor control because it generates less harmonic noise.
+
+Figure 5: Fast PWM at two duty cycles (top, middle) and CTC periodic interrupt (bottom)
+
+Listing 2 — 1 ms system tick (Timer0 CTC) and 8-bit PWM (Timer2)
+
+#include <avr/io.h>
+
+#include <avr/interrupt.h>
+
+volatile uint32_t ms_ticks = 0;
+
+ISR(TIMER0_COMPA_vect) { ms_ticks++; }        // runs every 1 ms
+
+void timer0_init_1ms(void) {                  // 16 MHz / 64 / 250 = 1 kHz
+
+TCCR0A = (1 << WGM01);                    // CTC mode
+
+TCCR0B = (1 << CS01) | (1 << CS00);       // prescaler = 64
+
+OCR0A  = 249;                             // 250 counts (0..249)
+
+TIMSK0 = (1 << OCIE0A);                   // enable compare-match interrupt
+
+}
+
+void pwm_timer2_init(void) {                  // OC2B = PD3, ~976 Hz
+
+DDRD  |= (1 << PD3);
+
+TCCR2A = (1 << COM2B1) | (1 << WGM21) | (1 << WGM20);   // Fast PWM, non-inverting
+
+TCCR2B = (1 << CS22);                                    // prescaler = 64
+
+}
+
+void pwm_set(uint8_t duty) { OCR2B = duty; }  // 0..255  => 0..100 %
+
+int main(void) {
+
+timer0_init_1ms(); pwm_timer2_init(); sei();
+
+while (1) { pwm_set(128); /* 50 % vibration */ }
+
+}
+
+2.6 Interrupts
+
+An interrupt is a hardware signal that makes the CPU pause the main program, run a short Interrupt Service Routine (ISR), and then resume exactly where it left off. Interrupts let the microcontroller respond immediately to events without constantly polling, which saves CPU time and power.
+
+Figure 6: AVR interrupt handling sequence
+
+The ATmega328P has 26 interrupt vectors. Each vector is a 2-word slot at the bottom of Flash that normally holds a jump to the ISR. A lower vector address means higher priority when several interrupts are pending. Interrupts only run when the global I-bit in SREG is set (sei()) and the individual interrupt-enable bit is set.
+
+Interrupt latency is a minimum of four clock cycles (about 0.25 µs at 16 MHz) plus the time to finish the current instruction. Good ISR practice: keep them short, set a flag and do the heavy work in the main loop, declare shared variables volatile, and protect multi-byte variables with cli()/sei() or ATOMIC_BLOCK when reading them in the main program.
+
+Listing 3 — External interrupt INT0
+
+#include <avr/io.h>
+
+#include <avr/interrupt.h>
+
+volatile uint8_t button_flag = 0;
+
+ISR(INT0_vect) { button_flag = 1; }          // keep ISR short
+
+int main(void) {
+
+DDRD  &= ~(1 << PD2);  PORTD |= (1 << PD2);   // PD2 input + pull-up
+
+EICRA  = (1 << ISC01);                        // INT0 on FALLING edge
+
+EIMSK  = (1 << INT0);                         // enable INT0
+
+sei();                                        // global interrupt enable
+
+while (1) {
+
+if (button_flag) { button_flag = 0; /* handle event */ }
+
+}
+
+}
+
+2.7 Peripherals
+
+Analog-to-Digital Converter (ADC)
+
+A 10-bit successive-approximation ADC with a multiplexer for six external channels (PC0–PC5, plus an internal temperature sensor and 1.1 V band-gap). The conversion result is ADC = (V_in × 1024) / V_ref. The ADC clock should be 50–200 kHz for full accuracy (prescaler 128 at 16 MHz gives 125 kHz), so one conversion takes about 13 ADC clocks ≈ 104 µs. The reference can be AREF, AVCC or the internal 1.1 V source.
+
+USART (serial)
+
+A full-duplex asynchronous/synchronous serial port on PD0 (RX) and PD1 (TX). The baud rate is set by UBRR = f_clk / (16 × baud) − 1. On Arduino boards it also provides the upload and debugging channel to the PC.
+
+SPI
+
+A fast synchronous master/slave bus using MOSI (PB3), MISO (PB4), SCK (PB5) and SS (PB2). Used for SD cards, displays, radio modules (nRF24L01) and for in-system programming of the chip itself.
+
+TWI (I²C)
+
+A two-wire bus using SDA (PC4) and SCL (PC5) that supports up to 128 devices with 7-bit addresses at 100 kHz or 400 kHz. This is the interface used to read the MPU-6050 (address 0x68). Both lines need pull-up resistors (4.7 kΩ typical).
+
+Analog comparator, watchdog timer, brown-out detector
+
+The analog comparator compares two pin voltages (AIN0, AIN1) and can raise an interrupt. The watchdog timer (WDT) is an independent on-chip oscillator-driven timer that resets the chip (or interrupts it) if the firmware stops “kicking” it — protecting against software hangs. The brown-out detector (BOD) holds the chip in reset when supply voltage falls below a threshold (1.8, 2.7 or 4.3 V) preventing erratic behaviour on a weak battery.
+
+Sleep modes and power management
+
+Six sleep modes progressively switch off clocks to save energy: Idle (CPU stopped, peripherals running), ADC Noise Reduction, Power-save (Timer2 async runs), Power-down (everything stopped except WDT, INT0/INT1, pin-change and TWI address match; current ≈ 0.1 µA), Standby and Extended standby (oscillator kept running for fast start-up). Individual peripherals can additionally be disabled with the Power Reduction Register (PRR).
+
+2.8 Applying the ATmega328P concepts to the cane
+
+Table 1 maps each architectural feature to a concrete job in the Smart Haptic Guide Cane. It also shows the ESP32 equivalent, which is what the final cane actually uses.
+
+Table 1: Mapping of ATmega328P features to cane functions
+
+Example: ultrasonic ranging with Timer1 on an ATmega328P-based version
+
+If the cane is built around an Arduino Nano (ATmega328P), the HC-SR04 ECHO pin is connected to ICP1 (PB0). The Input Capture unit freezes the Timer1 counter value in ICR1 at the exact moment of the rising and falling edges, so the pulse width is measured to a resolution of 0.5 µs (prescaler 8 at 16 MHz) with no CPU involvement.
+
+Listing 4 — HC-SR04 echo timing with Timer1 Input Capture (ATmega328P)
+
+// Distance = pulse_width_us / 58   (cm)
+
+volatile uint16_t t_rise, t_fall; volatile uint8_t done = 0;
+
+ISR(TIMER1_CAPT_vect) {
+
+if (TCCR1B & (1 << ICES1)) {          // rising edge captured
+
+t_rise = ICR1;
+
+TCCR1B &= ~(1 << ICES1);          // next capture: falling edge
+
+} else {                              // falling edge captured
+
+t_fall = ICR1;
+
+TCCR1B |= (1 << ICES1);           // back to rising edge
+
+done = 1;
+
+}
+
+}
+
+void timer1_init(void) {
+
+TCCR1B = (1 << CS11) | (1 << ICES1);  // prescaler 8 (0.5 us/tick), rising edge
+
+TIMSK1 = (1 << ICIE1);                // enable input-capture interrupt
+
+}
+
+float distance_cm(void) {                 // call after done == 1
+
+uint16_t ticks = t_fall - t_rise;     // 0.5 us per tick (wrap-safe)
+
+return (ticks * 0.5f) / 58.0f;
+
+}
+
+3. ESP32 as an IoT Edge Node
+
+3.1 ESP32 architecture
+
+The ESP32, from Espressif Systems, is a low-cost system-on-chip (SoC) that integrates a dual-core 32-bit processor, Wi-Fi, Bluetooth, memory and a rich set of peripherals. Compared with the 8-bit ATmega328P it is roughly 15–30 times faster and has about 250 times more RAM.
+
+Figure 7: ESP32 functional block diagram
+
+CPU: two Xtensa LX6 cores (PRO_CPU and APP_CPU) up to 240 MHz, running the FreeRTOS real-time operating system. Typically core 0 runs the Wi-Fi/Bluetooth stack and core 1 runs the user application, so radio activity does not disturb time-critical sensing.
+
+Memory: 520 KB SRAM, 448 KB ROM (boot code and libraries) and external SPI flash (usually 4 MB) that holds the firmware, file system and OTA partitions. The flash is mapped into the address space through a cache.
+
+Wireless: 2.4 GHz Wi-Fi (802.11 b/g/n) and Bluetooth v4.2 (Classic + BLE), with ESP-NOW, a connectionless peer-to-peer protocol.
+
+Peripherals: 34 GPIOs, 12-bit ADC (18 channels), 2 DACs, 16-channel LEDC PWM, 10 capacitive-touch inputs, 2 × I²C, 3 × SPI, 3 × UART, I²S, CAN, RMT (pulse capture/generation) and hardware interrupts on every pin.
+
+Security: hardware accelerators for AES, SHA and RSA, secure boot and flash encryption — essential for safe OTA updates.
+
+Low-power subsystem: RTC controller, RTC memory (8 KB fast + 8 KB slow) that survives deep sleep, and an Ultra-Low-Power (ULP) co-processor that can read sensors while the main cores are off.
+
+3.2 ATmega328P versus ESP32
+
+3.3 What is an IoT edge node?
+
+An IoT system is usually described in layers: devices that sense and act (the *perception layer*), a network that transports data, and cloud services that store and analyse it. An edge node is a device at the boundary — it has enough intelligence to process data locally and to decide what is worth sending upstream. This differs from a “dumb sensor” that streams every raw reading to the cloud.
+
+Figure 8: Edge-node data flow: sense → process → act locally → communicate events
+
+The ESP32 is a popular edge node because it can sense (ADC, I²C, GPIO), compute (240 MHz dual core, floating-point unit), and communicate (Wi-Fi, BLE, ESP-NOW) in one chip. Typical protocols are MQTT (lightweight publish/subscribe messaging over TCP), HTTP/HTTPS REST calls, BLE GATT services for talking to a phone, and ESP-NOW for direct device-to-device packets.
+
+The benefits of edge processing are: low latency (decisions in milliseconds, without a round-trip to the cloud), offline operation, reduced bandwidth and power (radios consume the most energy), and privacy (raw sensor data stays on the device).
+
+3.4 The cane as an edge node
+
+For a mobility aid, the obstacle-warning loop is safety-critical and must never depend on a network. The ESP32 therefore performs the entire sense → decide → vibrate loop locally in a few tens of milliseconds, and uses its radios only for secondary functions:
+
+Local (always): read two ultrasonic sensors, median-filter the readings, determine the nearest obstacle and its side, compute vibration pattern and drive the motors.
+
+BLE to the user’s phone (optional): battery level, settings (sensitivity, vibration strength), and a spoken alert in a companion app.
+
+Wi-Fi / MQTT (event-driven): when the MPU-6050 detects a fall (high acceleration followed by stillness and a tilted orientation), the ESP32 sends an alert with timestamp to a caregiver topic. Only this small event message is transmitted — not the continuous sensor stream.
+
+OTA: the same Wi-Fi link is used to receive firmware updates (Section 6).
+
+Figure 9: Electrical block diagram of the Smart Haptic Guide Cane (suggested GPIO assignment)
+
+Motor driver circuit
+
+The GPIO supplies only about 12 mA, while a vibration motor needs 60–100 mA. The GPIO therefore drives the base of an NPN transistor through a 1 kΩ resistor; the transistor’s collector switches the motor to ground. A flyback diode (e.g. 1N4148/1N4007) is placed across the motor, cathode to the supply, to absorb the voltage spike produced when the inductive motor is switched off — otherwise the spike can damage the transistor and reset the ESP32.
+
+Listing 5 — ESP32 sensing loop (Arduino-ESP32 core 3.x)
+
+#include <Arduino.h>
+
+const int TRIG1 = 5,  ECHO1 = 18;      // upper sensor
+
+const int TRIG2 = 19, ECHO2 = 23;      // lower sensor
+
+const int MOT_L = 25, MOT_R = 26;      // PWM to motor transistors
+
+float readCm(int trig, int echo) {
+
+digitalWrite(trig, LOW);  delayMicroseconds(2);
+
+digitalWrite(trig, HIGH); delayMicroseconds(10);
+
+digitalWrite(trig, LOW);
+
+unsigned long us = pulseIn(echo, HIGH, 25000UL);   // time-out 25 ms (~4 m)
+
+return us ? us / 58.0f : 400.0f;                   // 400 = "nothing seen"
+
+}
+
+float median3(float a, float b, float c) {
+
+if ((a >= b && a <= c) || (a <= b && a >= c)) return a;
+
+if ((b >= a && b <= c) || (b <= a && b >= c)) return b;
+
+return c;
+
+}
+
+void setup() {
+
+pinMode(TRIG1, OUTPUT); pinMode(ECHO1, INPUT);
+
+pinMode(TRIG2, OUTPUT); pinMode(ECHO2, INPUT);
+
+ledcAttach(MOT_L, 1000, 8);          // Arduino-ESP32 core 3.x: pin, freq, resolution
+
+ledcAttach(MOT_R, 1000, 8);
+
+}
+
+void loop() {
+
+float u[3], l[3];
+
+for (int i = 0; i < 3; i++) { u[i] = readCm(TRIG1, ECHO1); delay(10);
+
+l[i] = readCm(TRIG2, ECHO2); delay(10); }
+
+float dUpper = median3(u[0], u[1], u[2]);
+
+float dLower = median3(l[0], l[1], l[2]);
+
+// ... pass to haptic mapper (Section 4)
+
+}
+
+4. Haptic Feedback Algorithm
+
+Haptics means communicating information through the sense of touch. For a cane, vibration is ideal because it leaves the user’s hearing free to listen to traffic and surroundings. The design uses two cues — intensity/rhythm for distance, and left/right motor for direction or height.
+
+4.1 Distance zones
+
+Figure 10: Distance-to-vibration mapping used by the cane
+
+The proportional mapping uses duty = 100 % × (200 − d) / (200 − 30) for 30 cm ≤ d ≤ 200 cm, saturating at 100 % below 30 cm. The upper sensor warns of head-level hazards (signs, branches) on the left motor, and the lower sensor warns of ground-level hazards (steps, kerbs, potholes) on the right motor. Using different pulse rhythms for the two motors makes them distinguishable by touch.
+
+Listing 6 — Haptic mapper
+
+uint8_t distToDuty(float d) {
+
+if (d >= 200) return 0;
+
+if (d <= 30)  return 255;
+
+return (uint8_t)(255.0f * (200.0f - d) / 170.0f);
+
+}
+
+void haptic(int pin, float d) {
+
+static uint32_t t0[40];                       // last toggle time per pin
+
+uint8_t duty = distToDuty(d);
+
+if (d > 200)       { ledcWrite(pin, 0); return; }
+
+if (d < 50)        { ledcWrite(pin, duty); return; }          // continuous
+
+uint32_t period = (d < 120) ? 200 : 500;                      // 5 Hz or 2 Hz
+
+bool on = ((millis() - t0[pin]) % period) < period / 2;
+
+ledcWrite(pin, on ? duty : 0);
+
+}
+
+4.2 Fall detection (MPU-6050)
+
+The MPU-6050 measures acceleration on three axes. A fall is recognised as a sequence: free-fall or high-g spike (|a| below 0.4 g or above 2.5 g), followed by stillness (|a| ≈ 1 g with little change for about 2 s) and a tilt far from the normal carrying angle. Only when this three-stage condition is met does the cane raise an alert; this reduces false alarms caused by dropping the cane onto the ground or tapping it on a step.
+
+5. Low-Power Embedded Design
+
+5.1 Why low power matters
+
+A white cane is carried for hours every day and must run for days or weeks between charges. A dead cane is worse than no cane, because the user may rely on it. Low-power design increases battery life, reduces battery size and weight, lowers heat, and improves reliability.
+
+5.2 Where the power goes
+
+In CMOS digital circuits the dynamic power is approximately P ≈ C × V² × f — it grows with the switching capacitance C, the square of the supply voltage V, and the clock frequency f. Static (leakage) power flows even when nothing switches and dominates in sleep. This gives the core principles below.
+
+5.3 Low-power features of the ATmega328P
+
+Sleep modes: in Power-down mode the chip consumes ≈ 0.1 µA and wakes on INT0/INT1, pin-change, TWI address match or watchdog timeout, with a start-up of ≈ 6 clock cycles from the internal oscillator.
+
+Power Reduction Register (PRR): switches off individual modules (ADC, SPI, TWI, USART, timers).
+
+Brown-out detector off in sleep and ADC disabled save a few more µA.
+
+Lower frequency and voltage: the chip can run at 1 MHz and 1.8 V drawing only ≈ 0.2 mA.
+
+Listing 7 — ATmega328P power-down sleep with external wake-up
+
+#include <avr/sleep.h>
+
+#include <avr/power.h>
+
+#include <avr/interrupt.h>
+
+ISR(INT0_vect) { /* wake-up only; nothing to do */ }
+
+void go_to_sleep(void) {
+
+set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+
+power_adc_disable(); power_spi_disable();   // PRR bits
+
+cli();
+
+EIMSK |= (1 << INT0);                       // wake source: motion interrupt on INT0
+
+sleep_enable();
+
+sei();                                      // sei() + sleep are atomic together
+
+sleep_cpu();                                // ---- sleeping (~0.1 uA) ----
+
+sleep_disable();                            // woke up here
+
+power_adc_enable(); power_spi_enable();
+
+}
+
+5.4 Low-power features of the ESP32
+
+Figure 11: ESP32 power modes (left) and the cane’s power state machine (right)
+
+In deep sleep the CPU, most RAM and the radio are powered off; only the RTC controller, RTC memory and (optionally) the ULP co-processor stay alive. When the chip wakes up it restarts from the beginning of the program (like a reset), so values that must survive are stored in RTC memory (RTC_DATA_ATTR) or NVS flash.
+
+Listing 8 — Deep sleep with motion wake-up on the ESP32
+
+#include "esp_sleep.h"
+
+#include "driver/rtc_io.h"
+
+RTC_DATA_ATTR int bootCount = 0;          // survives deep sleep
+
+const gpio_num_t MPU_INT = GPIO_NUM_33;   // RTC-capable pin
+
+void enterDeepSleep() {
+
+digitalWrite(TRIG1, LOW);               // sensors quiet
+
+ledcWrite(MOT_L, 0); ledcWrite(MOT_R, 0);
+
+esp_sleep_enable_ext0_wakeup(MPU_INT, 1);          // wake when MPU-6050 INT goes HIGH
+
+esp_sleep_enable_timer_wakeup(30ULL * 60 * 1000000ULL); // also wake every 30 min for battery check
+
+esp_deep_sleep_start();                 // does not return
+
+}
+
+unsigned long lastMotion = 0;
+
+void loop() {
+
+// ... sensing + haptics ...
+
+if (movementDetected()) lastMotion = millis();
+
+if (millis() - lastMotion > 60000UL) enterDeepSleep();   // 60 s without motion
+
+}
+
+MPU-6050 wake-on-motion
+
+The MPU-6050 has a built-in motion-detection engine: the threshold (MOT_THR, register 0x1F), duration (MOT_DUR, 0x20) and interrupt enable (INT_ENABLE, 0x38, bit 6) are written over I²C, after which the sensor drives its INT pin high on motion while consuming only a few tens of µA in its low-power accelerometer mode. This INT pin is connected to GPIO33 so that motion alone wakes the whole cane — no button is needed. Exact register values should be taken from the MPU-6050 register map for the chosen sensitivity.
+
+5.5 Battery-life estimate
+
+The estimate below uses assumptions that should be replaced by measured values from the finished cane (use a multimeter in series or a USB power meter). It illustrates the effect of duty-cycling.
+
+For a 2000 mAh 18650 cell with ≈ 80 % usable capacity (1600 mAh): with sleep ≈ 1600 / 86 ≈ 18 days between charges, versus ≈ 1.4 days without sleep — a roughly 13× improvement from duty-cycling alone. Continuous use (85 mA) would give about 19 hours.
+
+6. Firmware Over-the-Air (OTA) Update Concepts
+
+6.1 What is OTA and why use it?
+
+Over-the-air (OTA) update means replacing a device’s firmware through a wireless link instead of a USB cable. For the cane it allows bug fixes (for example better filtering of false echoes), new features (new vibration patterns, fall-alert improvements) and security patches to be delivered to canes already in use, without the user having to return the device or install development tools.
+
+6.2 How OTA works on the ESP32
+
+The flash chip is divided into partitions defined in a partition table. For OTA the table contains two application slots (ota_0 and ota_1) plus an otadata partition recording which slot is valid and should boot (Figure 11). This is called a *dual-bank* or *A/B* scheme.
+
+Figure 12: ESP32 dual-partition flash layout (left) and OTA update sequence (right)
+
+Check: the running firmware (in slot A) contacts the update server or phone app and compares the available version number with its own.
+
+Download: the new image is received in blocks (HTTPS over Wi-Fi, or BLE from the phone) and written directly into the inactive slot B while the cane continues to operate from slot A. A power loss during download does not harm the working firmware.
+
+Verify: the bootloader/app checks image size, magic bytes and checksum (SHA-256); with secure boot enabled, the digital signature is verified too, so only firmware signed with the developer’s private key is accepted.
+
+Switch: the otadata partition is updated to point to slot B, and the device reboots into the new firmware.
+
+Self-test and commit: the new firmware runs a self-test (sensors respond, Wi-Fi works) and then marks itself valid. If it crashes, hangs or the watchdog resets it before it is marked valid, the bootloader automatically rolls back to slot A.
+
+Listing 9 — HTTPS OTA with rollback (ESP-IDF API from Arduino)
+
+#include <WiFi.h>
+
+#include "esp_https_ota.h"
+
+#include "esp_ota_ops.h"
+
+#include "esp_http_client.h"
+
+extern const char server_cert_pem[] asm("_binary_server_cert_pem_start");
+
+bool otaUpdate(const char* url) {
+
+esp_http_client_config_t http = {};
+
+http.url       = url;                  // https://example.com/cane/firmware_v1.1.bin
+
+http.cert_pem  = server_cert_pem;      // pin the server certificate (TLS)
+
+http.timeout_ms = 15000;
+
+esp_https_ota_config_t ota = {};
+
+ota.http_config = &http;
+
+return esp_https_ota(&ota) == ESP_OK;  // writes inactive slot, verifies, sets boot partition
+
+}
+
+void afterBootSelfTest() {               // call early in setup() of the NEW firmware
+
+if (sensorsOk() && wifiOk())
+
+esp_ota_mark_app_valid_cancel_rollback();   // commit
+
+else
+
+esp_ota_mark_app_invalid_rollback_and_reboot(); // go back to old version
+
+}
+
+bool safeToUpdate() {                    // cane-specific policy
+
+return batteryPercent() > 50 && !userIsWalking() && WiFi.status() == WL_CONNECTED;
+
+}
+
+Rollback requires the option CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE in the build configuration (ESP-IDF). For quick development, the Arduino ArduinoOTA library lets the Arduino IDE push a new sketch over the local Wi-Fi network (ArduinoOTA.begin() in setup and ArduinoOTA.handle() in loop); this is convenient in the lab but should be protected with a password and is not suited to production devices.
+
+6.3 Security considerations
+
+Encrypted transport (TLS/HTTPS) prevents eavesdropping and tampering during download; pinning the server certificate prevents man-in-the-middle attacks.
+
+Signed images + secure boot ensure that only authentic firmware runs. Without signature checks, anyone who can reach the update channel could install malicious code on a device that a blind person relies on.
+
+Flash encryption protects the firmware and stored credentials against cloning or reading.
+
+Version control / anti-rollback: refuse downgrades to versions with known vulnerabilities.
+
+Authenticated update source: use a unique device token so only registered canes can fetch images.
+
+6.4 OTA on the ATmega328P
+
+The ATmega328P has no radio and no built-in OTA, but it supports self-programming: code in the Boot Loader section can write the Application section using the SPM instruction. The Arduino bootloader (Optiboot) uses this to receive the program over serial. For wireless updates an external link (UART bridge to an ESP32, an nRF24L01 radio or Bluetooth module) must deliver the new image to a custom bootloader. This is exactly why the cane’s ESP32 can also serve as an update gateway for any ATmega328P companion chip: the ESP32 downloads the image and programs the ATmega over UART (STK500 protocol, as used by avrdude) or SPI.
+
+6.5 OTA policy for the Smart Haptic Guide Cane
+
+Never during use: update only when the cane is stationary/charging (MPU shows no motion for several minutes) and battery > 50 %.
+
+Background, user-approved: the phone app (or a home Wi-Fi connection at night) tells the user that an update is available; the user or caregiver confirms it.
+
+Fail-safe: dual slots + rollback guarantee that the cane always has working obstacle detection, even after an interrupted update.
+
+Signal the result by haptics: two short vibrations for a successful update, three long ones for a failed one.
+
+Staged roll-out: release first to a small test group of canes, observe, then release to all.
+
+7. Integrated System Operation and Testing
+
+7.1 Putting it all together
+
+The complete firmware is organised as a small set of FreeRTOS tasks on the ESP32 so that timing-critical sensing is never blocked by communication:
+
+Important timing detail: two HC-SR04 sensors must not fire at the same moment, because one sensor can hear the other’s echo and report a false obstacle. Alternate them with ≥ 30 ms between ranging cycles.
+
+7.2 Suggested test plan
+
+8. Conclusion
+
+The ATmega328P teaches the essential vocabulary of embedded systems: a Harvard RISC core with a small, carefully organised memory space; ports controlled through DDR/PORT/PIN registers; timers that generate time bases, PWM and precise pulse measurements; and prioritised interrupts that let the processor sleep until something happens. Each of these ideas reappears in the ESP32, which extends them with dual cores, an RTOS, hardware-accelerated security and integrated wireless connectivity.
+
+Applied to the Smart Haptic Guide Cane, the ESP32 acts as an edge node that keeps the safety-critical obstacle-warning loop fully local and uses its radios sparingly for fall alerts, settings and updates. Low-power design — deep sleep with wake-on-motion, a reduced clock, powered-down peripherals and an efficient supply — can extend the battery life from about one day to several weeks in typical use. OTA updates with dual partitions, signed images and automatic rollback let the cane keep improving after it has been handed over to the user, without ever risking a bricked device.
+
+Suggested next steps: build the sensing and haptic loop first (Listings 5–6), measure current in each state to replace the estimates in Section 5.5, add motion wake-up and deep sleep, then implement OTA with rollback last, once the core behaviour is stable.
+
+References
+
+Microchip Technology, “ATmega48A/PA/88A/PA/168A/PA/328/P Datasheet” (DS40002061).
+
+Espressif Systems, “ESP32 Series Datasheet” and “ESP32 Technical Reference Manual”.
+
+Espressif Systems, ESP-IDF Programming Guide — Sleep Modes; Over The Air Updates (OTA); Partition Tables; App Rollback.
+
+InvenSense, “MPU-6000 and MPU-6050 Product Specification” and “Register Map and Descriptions”.
+
+Elec Freaks, “HC-SR04 Ultrasonic Ranging Module User Guide”.
+
+M. A. Mazidi, S. Naimi, S. Naimi, “The AVR Microcontroller and Embedded Systems: Using Assembly and C”, Pearson.
+
+Arduino-ESP32 core documentation (LEDC, deep sleep, ArduinoOTA), Espressif.
+
+Reading guide
+Sections 2 and 3 are theory + direct application. Section 4 describes the haptic algorithm. Section 5 (low power) and Section 6 (OTA) show how the cane becomes a long-lasting, maintainable product. Pin numbers and component values are a suggested design — verify them against your own wiring and datasheets before building.
+
+Block Part Role in the cane
+
+Main controller ESP32 DevKit (ESP32-WROOM-32) Sensor fusion, haptic control, BLE/Wi-Fi, OTA
+
+Distance sensing 2 × HC-SR04 ultrasonic Upper beam (head/chest) and lower beam (ground, steps)
+
+Motion sensing MPU-6050 (accelerometer + gyroscope) Tilt, fall detection, wake-on-motion
+
+Feedback 2 × coin/ERM vibration motors Left/right haptic cues in the handle
+
+Motor drive 2 × NPN transistor + diode + resistor Switches motor current; protects GPIO
+
+Power Li-ion cell + TP4056 charger + 3.3 V regulator Rechargeable supply
+
+Feature Specification
+
+Architecture 8-bit AVR RISC, modified Harvard (separate program and data buses)
+
+Clock Up to 20 MHz (16 MHz on Arduino Uno/Nano with external crystal; 8 MHz internal RC oscillator available)
+
+Flash (program memory) 32 KB (≈ 0.5 KB used by bootloader on Arduino boards); ~10 000 write cycles
+
+SRAM 2 KB
+
+EEPROM 1 KB; ~100 000 write cycles
+
+I/O lines 23 programmable (Port B: 8, Port C: 7, Port D: 8)
+
+Timers/Counters Timer0 (8-bit), Timer1 (16-bit), Timer2 (8-bit, async capable)
+
+PWM channels 6 (OC0A/B, OC1A/B, OC2A/B)
+
+ADC 10-bit, 6 channels (DIP-28), internal 1.1 V reference
+
+Serial interfaces USART, SPI, TWI (I²C-compatible)
+
+Interrupts 26 vectors; 2 external (INT0/INT1) + pin-change on all pins
+
+Supply voltage 1.8 V – 5.5 V (speed depends on voltage)
+
+Sleep modes Idle, ADC noise reduction, Power-save, Power-down, Standby, Extended standby
+
+Design tip: protect the 2 KB of SRAM
+Avoid large local arrays and heavy use of String objects. Store fixed text in Flash with F("..."). A stack/heap collision produces random resets that are very hard to debug.
+
+Register Name Function
+
+DDRx Data Direction Register Bit = 1 → pin is OUTPUT; bit = 0 → pin is INPUT
+
+PORTx Port Output Register Output mode: sets pin HIGH/LOW. Input mode: 1 enables the internal pull-up resistor (≈ 20–50 kΩ)
+
+PINx Port Input Register Reads the actual logic level of the pin; writing 1 toggles the output
+
+Timer Width Counting range Output pins Special features
+
+Timer0 8-bit 0 – 255 OC0A (PD6), OC0B (PD5) Used by Arduino for millis()/delay(); external clock T0
+
+Timer1 16-bit 0 – 65 535 OC1A (PB1), OC1B (PB2) Input Capture unit (ICP1, PB0) — ideal for measuring pulse width; external clock T1
+
+Timer2 8-bit 0 – 255 OC2A (PB3), OC2B (PD3) Asynchronous operation from a 32.768 kHz watch crystal (real-time clock, low-power wake-up)
+
+Vector no. Source Typical use
+
+1 RESET (power-on, external, watchdog, brown-out) Program start
+
+2 – 3 INT0 (PD2), INT1 (PD3) External event, wake-up from power-down (low-level)
+
+4 – 6 PCINT0/1/2 (pin change, all ports) Buttons, any-pin wake-up
+
+7 Watchdog timeout Periodic wake-up / safety reset
+
+8 – 10 Timer2 Compare A/B, Overflow RTC tick, PWM events
+
+11 – 14 Timer1 Capture, Compare A/B, Overflow Echo-pulse timing, sampling
+
+15 – 17 Timer0 Compare A/B, Overflow System tick
+
+18 SPI transfer complete Fast peripherals
+
+19 – 21 USART RX complete, UDRE, TX complete Serial communication
+
+22 ADC conversion complete Sensor sampling
+
+23 – 26 EEPROM ready, Analog comparator, TWI (I²C), SPM ready Peripheral events
+
+ATmega328P feature Use in the cane ESP32 equivalent used
+
+Port D / Port B digital I/O (DDR, PORT, PIN) TRIG pulses (output) and ECHO reading (input) for each HC-SR04 GPIO 5/18 and 19/23 via pinMode, digitalWrite
+
+Timer1 Input Capture (ICP1) Hardware measurement of the ECHO pulse width: distance = width / 58 µs per cm — no CPU polling and jitter-free pulseIn() or RMT peripheral / GPIO interrupt with micros()
+
+Timer0/Timer2 Fast PWM (OCnx pins) Vibration-motor intensity (0–100 % duty) LEDC PWM channel (ledcWrite) on GPIO 25/26
+
+Timer CTC interrupt Fixed 50 ms measurement cycle (20 Hz sensing) hardware timer (esp_timer / hw_timer) or FreeRTOS task delay
+
+INT0 / pin-change interrupt Wake-up when MPU-6050 detects motion; emergency button ext0/ext1 wake-up from deep sleep; GPIO interrupt
+
+TWI (I²C) on PC4/PC5 Read MPU-6050 accelerometer/gyroscope I²C0 on GPIO 21 (SDA), 22 (SCL)
+
+10-bit ADC Battery voltage monitoring through a resistor divider 12-bit ADC (GPIO 34/35 input-only pins)
+
+Watchdog timer Auto-recover if firmware hangs while the user is walking Task WDT + RTC WDT
+
+EEPROM Store calibration, thresholds and user settings NVS / Preferences library (flash emulation)
+
+Power-down sleep + INT wake Cane idle on the table Deep sleep + ext0 wake-up
+
+Why the ESP32 was chosen for the final cane
+The ATmega328P has no radio, only 2 KB RAM and cannot be updated wirelessly. The cane needs Bluetooth/Wi-Fi for caregiver alerts and OTA updates, more RAM for filtering, and a 3.3 V logic level compatible with the MPU-6050. The ESP32 provides all of these for a similar price.
+
+Important: voltage levels
+ESP32 GPIOs are 3.3 V and not 5 V tolerant. The HC-SR04 powered at 5 V outputs a 5 V ECHO signal, so a 1 kΩ / 2 kΩ resistor divider (or a level shifter) is required between ECHO and the ESP32 input. The MPU-6050 is a 3.3 V device and connects directly.
+
+Parameter ATmega328P ESP32
+
+CPU 8-bit AVR, 1 core, 16 MHz 32-bit Xtensa LX6, 2 cores, up to 240 MHz
+
+SRAM / Flash 2 KB / 32 KB 520 KB / 4 MB (external)
+
+Logic level 5 V (or 3.3 V version) 3.3 V only
+
+Wireless None (needs external module) Wi-Fi + Bluetooth/BLE built in
+
+ADC 10-bit, 6 ch 12-bit, 18 ch
+
+PWM 6 hardware channels 16 LEDC channels, any GPIO
+
+OS support Bare metal / Arduino loop FreeRTOS multitasking
+
+Deep-sleep current ≈ 0.1 µA (chip only) ≈ 10 µA (chip); ≈ 5 µA hibernation
+
+Active current ≈ 5 – 10 mA at 16 MHz ≈ 40 mA CPU only; up to ≈ 240 mA Wi-Fi TX peaks
+
+OTA updates Not built in (custom bootloader needed) Built in (dual-partition OTA, rollback, signing)
+
+Typical price (India) ≈ ₹150–300 (Nano/Uno clone) ≈ ₹400–600 (DevKit)
+
+Signal ESP32 pin Notes
+
+HC-SR04 #1 TRIG / ECHO GPIO5 / GPIO18 ECHO through 1 kΩ + 2 kΩ divider
+
+HC-SR04 #2 TRIG / ECHO GPIO19 / GPIO23 ECHO through 1 kΩ + 2 kΩ divider
+
+MPU-6050 SDA / SCL GPIO21 / GPIO22 I²C, address 0x68, 4.7 kΩ pull-ups
+
+MPU-6050 INT GPIO33 RTC-capable pin → deep-sleep wake-up source
+
+Left motor PWM GPIO25 Via NPN transistor (e.g. BC547) + 1N4148 flyback diode
+
+Right motor PWM GPIO26 Same as left
+
+Battery sense GPIO34 (ADC1) Divider 100 kΩ / 100 kΩ
+
+Zone Distance Vibration pattern PWM duty
+
+DANGER < 50 cm Continuous, strong ≥ 85 %
+
+NEAR 50 – 120 cm Fast pulses (≈ 5 Hz) 45 – 85 %
+
+AWARE 120 – 200 cm Slow pulses (≈ 2 Hz) 0 – 45 %, increasing as obstacle approaches
+
+CLEAR > 200 cm No vibration (saves power) 0 %
+
+Technique How it saves energy Cane example
+
+Duty-cycling (sleep most of the time) Average current = Σ (I_state × time fraction) Deep sleep when the cane is stationary
+
+Lower clock frequency Dynamic power ∝ f Run ESP32 at 80 MHz instead of 240 MHz (sensing needs little CPU)
+
+Lower supply voltage Dynamic power ∝ V² Run the ATmega328P at 3.3 V / 8 MHz
+
+Switch off unused peripherals Removes their idle current Wi-Fi/BLE off during normal walking; ADC off (PRR bit on AVR)
+
+Interrupt-driven design, not polling CPU sleeps until an event occurs Motion interrupt from the MPU-6050 wakes the ESP32
+
+Power-gate external parts Sensors draw current even when idle (HC-SR04 ≈ 15 mA) Switch sensor supply with a transistor / MOSFET, or use the sensor only when walking
+
+Efficient regulator Linear dropout regulators waste (Vin − Vout) × I Use a low-quiescent-current buck or LDO (e.g. ≤ 10 µA Iq)
+
+Minimise radio on-time Wi-Fi TX is the largest consumer (≈ 160–240 mA) Send only fall events; batch updates; BLE instead of Wi-Fi
+
+Mode What runs Typical current* Wake-up sources
+
+Active CPU + Wi-Fi/BT radio ≈ 95–240 mA (radio on) —
+
+Active, CPU only CPU, radio off ≈ 20–50 mA —
+
+Modem sleep CPU on, radio off between beacons ≈ 15–30 mA Automatic
+
+Light sleep CPU paused, RAM retained ≈ 0.8 mA Timer, GPIO, UART, touch
+
+Deep sleep Only RTC + (optional) ULP; main RAM lost ≈ 10 µA (bare chip) Timer, ext0/ext1 GPIO, touch, ULP
+
+Hibernation Only RTC timer ≈ 5 µA RTC timer, RTC GPIO
+
+State Assumed current Time per day Charge per day
+
+Active sensing + haptics (ESP32 80 MHz, 2 × HC-SR04, MPU-6050, motors avg.) ≈ 85 mA 1 h 85 mAh
+
+Deep sleep (optimised board incl. MPU wake-on-motion, regulator) ≈ 0.05 mA 23 h 1.2 mAh
+
+Total with sleep 24 h ≈ 86 mAh/day
+
+Total WITHOUT sleep (CPU idling, sensors on, ≈ 45 mA) ≈ 45 mA 23 h idle + 1 h active ≈ 1120 mAh/day
+
+Safety note for a mobility device
+Add a low-battery warning (e.g. three long vibrations when the cell is below 15 %) and a hardware under-voltage cut-off on the Li-ion cell (the TP4056 module with DW01 protection provides this). Never let the cane fail silently.
+
+Aspect ATmega328P ESP32
+
+Update path Optiboot bootloader via serial; wireless only with external module Wi-Fi/BLE OTA built in
+
+Safe fallback None by default — a failed upload can leave the chip without application Dual-slot with automatic rollback
+
+Image size limit ≈ 31.5 KB ≈ 1.2–1.9 MB per slot (default partition table)
+
+Authenticity check Not built in (checksum only in custom bootloader) SHA-256 + RSA/ECDSA signature, secure boot
+
+Task / event Core Period Function
+
+sensorTask 1 (APP) 50 ms (20 Hz) Trigger both ultrasonic sensors alternately (to avoid cross-talk), median filter, publish distances
+
+hapticTask 1 (APP) 20 ms Apply zone mapping and pulse patterns to both motors
+
+imuTask 1 (APP) 20 ms Read MPU-6050, run fall-detection state machine, track motion for sleep timer
+
+powerTask 1 (APP) 1 s Battery measurement, low-battery warning, deep-sleep decision
+
+commTask 0 (PRO) event-driven BLE settings, MQTT fall alert, OTA download when allowed
+
+MPU INT (ext0) — on motion Wake from deep sleep
+
+Test Method Pass criterion
+
+Distance accuracy Place a flat board at 30, 50, 100, 150, 200 cm and compare with a tape measure Error ≤ ± 3 cm (HC-SR04 spec ≈ 3 mm resolution)
+
+Beam coverage Move a cardboard cylinder across the beam Detected inside ≈ 15° cone
+
+Haptic response time Move obstacle into DANGER zone; measure with phone slow-motion video < 150 ms from obstacle to vibration
+
+Motor driver Measure current and transistor temperature after 10 min No resets, no overheating
+
+Fall detection Simulate falls vs. dropping/tapping the cane (10 trials each) ≥ 9/10 true alerts, ≤ 1/10 false alerts
+
+Battery life Log current with a USB power meter; compute using Section 5.5 method Matches estimate within ± 30 %
+
+Wake-on-motion Leave the cane still for 60 s, then lift it Wakes in < 1 s and resumes sensing
+
+OTA Update from v1.0 to v1.1; test power cut mid-download; test faulty image Old firmware still boots; faulty image rolls back
